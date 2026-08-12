@@ -1,18 +1,19 @@
 import type { SideRole } from '@/types';
 
 /**
- * PHASE 2 NOTICE
- * ---------------------------------------------------------------------------
  * This module only checks that a code is *shaped* like a valid access code
- * and reads its role digit. It is intentionally NOT the security mechanism.
+ * — length and character set — purely so the UI can give instant feedback
+ * on an obviously-empty or malformed entry before making a network call.
+ * It is intentionally NOT the security mechanism, and `AuthContext.login()`
+ * treats it as such: real verification (hashing, rate limiting, and the
+ * role assignment that comes from a valid code) happens entirely
+ * server-side in the verify-access-code Edge Function, which parses the
+ * role digit itself and never trusts anything computed here. See
+ * supabase/functions/verify-access-code/index.ts.
  *
  * Per the product spec, the final digit ("1" = Side A, "5" = Side B) only
  * ever selects which chat profile/UI loads for an already-authenticated
  * person — it must never be treated as a secret or as proof of identity.
- * `AuthContext.login()` uses this module's output to sign in with Supabase
- * and claim that role's seat, but nothing here verifies the code's secret
- * portion against anything. Real verification (hashing, rate limiting, a
- * server-side check that gates the seat claim) is Phase 3's job.
  */
 
 const MIN_CODE_LENGTH = 6;
