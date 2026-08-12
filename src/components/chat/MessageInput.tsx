@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useChat } from '@/context/ChatContext';
+import { MAX_MESSAGE_LENGTH } from '@/utils/constants';
 import styles from './MessageInput.module.scss';
 
 export function MessageInput() {
@@ -87,6 +88,7 @@ export function MessageInput() {
             onKeyDown={handleKeyDown}
             aria-label="Message"
             autoComplete="off"
+            maxLength={MAX_MESSAGE_LENGTH}
           />
         </div>
         <button

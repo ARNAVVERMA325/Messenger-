@@ -115,7 +115,7 @@
   }
 }
 
-.logoutButton {
+.iconButton {
   @include m.touch-target(40px);
   @include m.focus-ring;
   display: grid;
@@ -124,6 +124,13 @@
   border-radius: v.$radius-pill;
   flex-shrink: 0;
 
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-alt);
+  }
+}
+
+.iconButtonDanger {
   &:hover {
     color: var(--color-danger);
     background: var(--color-danger-bg);

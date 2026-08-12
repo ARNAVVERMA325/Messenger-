@@ -6,13 +6,14 @@ built like a real messaging product underneath, not a mockup.
 Built in phases, reviewed as it goes. See **Project status** below for what's
 real today and what's still a placeholder.
 
-## Project status — Phase 3 of 7
+## Project status — Phase 4 of 7
 
 **Phase 1 (Product + UI)** shipped a complete, polished mobile-first
 interface. **Phase 2 (Real messaging)** replaced the simulated backend with
 Supabase Postgres + Realtime. **Phase 3 (Authentication + security)**
-replaces Phase 2's "anyone authenticated can claim a seat" placeholder with
-real, server-verified access codes.
+replaced Phase 2's "anyone authenticated can claim a seat" placeholder with
+real, server-verified access codes. **Phase 4 (Privacy layer)** adds
+optional client-side message encryption — see its own section below.
 
 **What's real right now:**
 - **Access codes are actually verified**, server-side, in the
@@ -79,13 +80,84 @@ final digit only ever selects **which chat profile loads** after the secret
 is verified; see `src/utils/accessCode.ts` and the Edge Function for why
 it's never treated as part of the security check itself.
 
+## Privacy layer (optional, off by default)
+
+Phase 4 adds an optional layer that encrypts message *text* in the browser
+before it's sent. It's off until both people turn it on with the same
+passphrase — nothing changes for anyone who doesn't use it. Here's exactly
+what it does, in the terms the spec for this feature asked for directly:
+
+**What is encrypted.** Only the text content of messages — what you type
+into the message box. Nothing else: not who's messaging whom, not
+timestamps, not delivered/read receipts, not typing/online presence, not
+message length (well — ciphertext length, which correlates with plaintext
+length). This is deliberately **not** described as full end-to-end
+encryption of "the conversation" — it's encryption of message *content*,
+and that distinction matters. If you turn it on, message text specifically
+has the property that only someone holding the shared passphrase can read
+it — including Anthropic, Supabase, or anyone with database access; that
+part genuinely is end-to-end in the normal sense of the term. The metadata
+listed above is not covered and Supabase can see all of it either way.
+
+**Where encryption happens.** Entirely in your browser, in
+`src/lib/crypto.ts`, using the Web Crypto API — nothing invented here, just
+two standard, native primitives: PBKDF2 (turns your passphrase into a key)
+and AES-GCM (authenticated encryption of the message text). There is no
+server-side component to this feature at all: no Edge Function, no table,
+no API call. The database just stores whatever string the browser hands it
+and has no way to tell encrypted content from plain text, let alone
+decrypt it.
+
+**What the server can still see.** Everything except message text: sender,
+recipient (there are only two people, so this is trivial anyway), exact
+timestamps, edited/deleted status and when, delivered/read state, and
+approximate message length. A Supabase project owner (or anyone who
+obtained the service-role key) could read all of that regardless of whether
+this feature is on. Turning encryption on does not hide that this
+conversation exists, roughly how active it is, or when — only what was
+actually said.
+
+**How keys are created and stored.** Both people enter the exact same
+passphrase (agreed on some other way — in person, a phone call — never
+sent through this app before encryption is on, since that would defeat the
+point). Each browser independently derives a 256-bit key from that
+passphrase via PBKDF2 (250,000 iterations) and a salt that's public but
+fixed per deployment (`VITE_ENCRYPTION_SALT` — see `.env.example`). The
+derived key is cached in that browser's `localStorage` so you don't have to
+retype the passphrase every visit. Nothing about the passphrase or the key
+is ever sent anywhere, stored server-side, or recoverable by anyone but the
+two of you. Practical consequence: **if someone has access to your
+unlocked device and its browser storage, they can read your encrypted
+messages** — this protects the content in transit and at rest in the
+database, not from someone holding the device itself.
+
+**What happens if the passphrase or key is lost.** It's gone, permanently,
+by design — that's what makes it a real secret rather than a recoverable
+password. There's no "forgot passphrase" flow, because building one would
+require storing something server-side that could decrypt your messages,
+which defeats the entire point of this feature. If you both forget the
+passphrase, every message encrypted with it stays permanently unreadable in
+this app. You can still set a *new* passphrase going forward for new
+messages; it just won't unlock the old ones. Write your passphrase down
+somewhere durable if that risk matters to you — this app deliberately
+gives you no other way back in.
+
+One more honest limitation, since precision matters more than sounding
+impressive: the PBKDF2 salt is public and shared by every user of a given
+deployment (it has to be, so both browsers derive the same key with no way
+to exchange a private salt between them). That means it defends against
+a generic rainbow-table attack but not one built specifically targeting
+this deployment's salt — set a unique `VITE_ENCRYPTION_SALT` per
+deployment and pick a passphrase that isn't a common word or short phrase.
+
 ## Roadmap
 
 1. Product + UI
 2. Real messaging — backend + realtime, history, pagination, edit/delete
-3. **Authentication + security** *(this phase)* — server-verified secret
-   check, rate limiting, real sign-out
-4. Optional client-side privacy layer (AES-GCM, documented threat model)
+3. Authentication + security — server-verified secret check, rate
+   limiting, real sign-out
+4. **Optional client-side privacy layer** *(this phase)* — AES-GCM message
+   encryption, documented threat model (see "Privacy layer" above)
 5. Personal features (nicknames, avatars, reactions, pinned/favorite messages, etc.)
 6. Polish (motion, skeletons, offline handling, accessibility)
 7. Security + bug audit (two full passes)
@@ -98,8 +170,9 @@ beyond a "backend not configured" screen. You'll also need the
 (`supabase login`) to deploy the Edge Function and set its secrets.
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the SQL Editor, run `supabase/migrations/0001_init.sql`, then
-   `supabase/migrations/0002_phase3_security.sql`, in that order.
+2. In the SQL Editor, run the three files in `supabase/migrations/` in
+   order (`0001_init.sql`, `0002_phase3_security.sql`,
+   `0003_phase4_privacy.sql`).
 3. **Required manual step:** in the dashboard, go to **Project Settings →
    Realtime** and turn **off** "Allow public access". The migrations define
    RLS policies for the realtime channel (presence/typing), but they're only
@@ -124,7 +197,12 @@ beyond a "backend not configured" screen. You'll also need the
    give one to each person. If it also prints a `supabase secrets set
    CODE_PEPPER=...` command, run that now — the deployed function won't
    accept any code until it has a matching pepper.
-8. `npm run dev`.
+8. Optional (Phase 4 privacy layer): set `VITE_ENCRYPTION_SALT` in
+   `.env.local`/Netlify to a unique random value for this deployment (e.g.
+   `openssl rand -hex 16`) — see "Privacy layer" above. Skippable; the
+   feature works with a shared default salt, just with a documented,
+   weaker guarantee against a targeted rainbow-table attack.
+9. `npm run dev`.
 
 **Never commit** the service-role key or the pepper anywhere, and never put
 either in a `VITE_`-prefixed variable — both are server-only secrets. The
@@ -160,8 +238,9 @@ the same two values from `.env.local`:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_ENCRYPTION_SALT` (optional — see "Privacy layer" above)
 
-Both are public values, safe to set as plain (non-secret) environment
+All three are public values, safe to set as plain (non-secret) environment
 variables — see "Setting up Supabase" above. Nothing else needs to be
 configured in Netlify; the service-role key and `CODE_PEPPER` live only in
 Supabase (as an Edge Function secret) and your own terminal when running the
@@ -180,6 +259,8 @@ bundle. Netlify serves everything over HTTPS by default.
 - **React Router** for the two-screen flow (`/` and `/chat`).
 - **Framer Motion** for the soft, purposeful animations, with
   `prefers-reduced-motion` respected throughout.
+- **Web Crypto API** (native browser, no library) for the optional privacy
+  layer — PBKDF2 key derivation and AES-GCM message encryption.
 
 The codebase is intentionally small and readable — one folder per concern
 (`components`, `context`, `hooks`, `utils`, `types`, `lib`) — so it stays

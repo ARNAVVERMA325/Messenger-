@@ -1,11 +1,17 @@
+import { useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/context/ChatContext';
+import { useEncryption } from '@/context/EncryptionContext';
 import { formatLastSeen } from '@/utils/formatTime';
+import { PrivacySettings } from './PrivacySettings';
 import styles from './ChatHeader.module.scss';
 
 export function ChatHeader() {
   const { other, typingRole, otherRole } = useChat();
   const { logout } = useAuth();
+  const { isEnabled: encryptionEnabled } = useEncryption();
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
 
   const isTyping = typingRole === otherRole;
 
@@ -35,10 +41,47 @@ export function ChatHeader() {
         </span>
       </div>
 
-      <button type="button" className={styles.logoutButton} onClick={logout} aria-label="Leave chat">
+      <button
+        type="button"
+        className={styles.iconButton}
+        onClick={() => setIsPrivacyOpen(true)}
+        aria-label="Privacy settings"
+      >
+        <LockIcon filled={encryptionEnabled} />
+      </button>
+
+      <button
+        type="button"
+        className={`${styles.iconButton} ${styles.iconButtonDanger}`}
+        onClick={logout}
+        aria-label="Leave chat"
+      >
         <LeaveIcon />
       </button>
+
+      <AnimatePresence>
+        {isPrivacyOpen && <PrivacySettings onClose={() => setIsPrivacyOpen(false)} />}
+      </AnimatePresence>
     </header>
+  );
+}
+
+function LockIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect
+        x="5"
+        y="11"
+        width="14"
+        height="10"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        fill={filled ? 'currentColor' : 'none'}
+        fillOpacity={filled ? 0.15 : 0}
+      />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
   );
 }
 

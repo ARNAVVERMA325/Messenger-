@@ -13,6 +13,7 @@ import type { AuthSession, ConnectionStatus, Message, MessageStatus, Participant
 import type { MessageRow, RoomMemberRow } from '@/lib/database.types';
 import { supabase } from '@/lib/supabaseClient';
 import { createId } from '@/utils/id';
+import { useEncryption } from '@/context/EncryptionContext';
 
 /**
  * PHASE 2 NOTICE — this is the real thing: messages are stored in Postgres
@@ -100,6 +101,7 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 export function ChatProvider({ session, children }: { session: AuthSession; children: ReactNode }) {
   const { userId, role: myRole } = session;
   const otherRole: SideRole = myRole === 'A' ? 'B' : 'A';
+  const { encryptOutgoing, decrypt } = useEncryption();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -365,22 +367,28 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
         { id: tempId, senderRole: myRole, text: trimmed, createdAt: Date.now(), status: 'sending' },
       ]);
 
-      supabase
-        .from('messages')
-        .insert({ sender_id: userId, sender_role: myRole, content: trimmed })
-        .select()
-        .single()
-        .then(({ data, error }) => {
-          if (error || !data) {
-            console.error('Failed to send message', error);
-            setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
-            return;
-          }
-          tempTextById.current.delete(tempId);
-          setMessages((prev) => upsert(prev.filter((m) => m.id !== tempId), mapRow(data as MessageRow, myRole)));
-        });
+      (async () => {
+        const contentToStore = await encryptOutgoing(trimmed);
+        const { data, error } = await supabase
+          .from('messages')
+          .insert({ sender_id: userId, sender_role: myRole, content: contentToStore })
+          .select()
+          .single();
+
+        if (error || !data) {
+          console.error('Failed to send message', error);
+          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
+          return;
+        }
+        tempTextById.current.delete(tempId);
+        // Keep the known plaintext rather than round-tripping our own
+        // message through decrypt() — avoids a "decrypting…" flash on send.
+        setMessages((prev) =>
+          upsert(prev.filter((m) => m.id !== tempId), { ...mapRow(data as MessageRow, myRole), text: trimmed }),
+        );
+      })();
     },
-    [myRole, userId],
+    [myRole, userId, encryptOutgoing],
   );
 
   const retryMessage = useCallback(
@@ -400,22 +408,28 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      supabase.rpc('edit_message', { p_id: id, p_content: trimmed }).then(({ data, error }) => {
+      (async () => {
+        const contentToStore = await encryptOutgoing(trimmed);
+        const { data, error } = await supabase.rpc('edit_message', { p_id: id, p_content: contentToStore });
         if (error || !data) return console.error('Failed to edit message', error);
-        setMessages((prev) => upsert(prev, mapRow(data as MessageRow, myRole)));
+        setMessages((prev) => upsert(prev, { ...mapRow(data as MessageRow, myRole), text: trimmed }));
         setEditingMessage((prev) => (prev?.id === id ? null : prev));
-      });
+      })();
     },
-    [myRole],
+    [myRole, encryptOutgoing],
   );
 
   const beginEdit = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const message = messagesRef.current.find((m) => m.id === id);
       if (!message || message.senderRole !== myRole || message.deletedAt) return;
-      setEditingMessage({ id, text: message.text });
+      // The message's stored text may be an encrypted envelope — resolve
+      // it to real plaintext before handing it to the edit input.
+      const result = await decrypt(message.text);
+      if (result.status !== 'plain' && result.status !== 'decrypted') return;
+      setEditingMessage({ id, text: result.text });
     },
-    [myRole],
+    [myRole, decrypt],
   );
 
   const cancelEdit = useCallback(() => setEditingMessage(null), []);

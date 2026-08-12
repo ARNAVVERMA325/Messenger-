@@ -1,0 +1,202 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: v.$z-modal;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+
+  @include m.from(v.$bp-md) {
+    align-items: center;
+  }
+}
+
+.panel {
+  @include m.safe-bottom;
+  width: 100%;
+  max-width: 480px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--color-bg-elevated);
+  border-radius: v.$radius-xl v.$radius-xl 0 0;
+  padding: v.$space-5;
+  box-shadow: var(--shadow-strong);
+
+  @include m.from(v.$bp-md) {
+    border-radius: v.$radius-xl;
+    margin-bottom: v.$space-6;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: v.$space-4;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  color: var(--color-text);
+}
+
+.closeButton {
+  @include m.touch-target(36px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  border-radius: v.$radius-pill;
+  color: var(--color-text-secondary);
+
+  &:hover {
+    background: var(--color-surface-alt);
+  }
+}
+
+.intro {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: v.$space-4;
+}
+
+.section {
+  padding: v.$space-4 0;
+  border-top: 1px solid var(--color-border);
+
+  &:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
+.label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: v.$space-2;
+}
+
+.passphraseRow {
+  display: flex;
+  gap: v.$space-2;
+}
+
+.passphraseInput {
+  flex: 1;
+  min-width: 0;
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--color-surface-alt);
+  border: 1.5px solid transparent;
+  color: var(--color-text);
+  font-size: 16px; // prevents iOS zoom-on-focus
+
+  &:focus-visible {
+    border-color: var(--color-accent);
+    outline: none;
+  }
+}
+
+.saveButton {
+  @include m.focus-ring;
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--accent-gradient);
+  color: var(--color-on-accent);
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+.hint {
+  margin-top: v.$space-2;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.confirmation {
+  margin-top: v.$space-2;
+  font-size: 0.75rem;
+  color: var(--color-online);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: v.$space-3;
+}
+
+.toggleLabel {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.toggleSubtext {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.switch {
+  @include m.focus-ring;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+  transition: background-color v.$duration-fast v.$ease-out;
+
+  &.switchOn {
+    background: var(--accent-gradient);
+    border-color: transparent;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+  }
+}
+
+.switchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform v.$duration-fast v.$ease-out;
+
+  .switchOn & {
+    transform: translateX(18px);
+  }
+}
+
+.forgetButton {
+  @include m.focus-ring;
+  padding: v.$space-2 v.$space-4;
+  border-radius: v.$radius-pill;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.unsupported {
+  font-size: 0.875rem;
+  color: var(--color-danger);
+}

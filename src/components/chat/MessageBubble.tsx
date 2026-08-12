@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import type { Message } from '@/types';
 import { useChat } from '@/context/ChatContext';
+import { useDecryptedMessage } from '@/hooks/useDecryptedMessage';
+import { isEncryptedContent } from '@/lib/crypto';
 import { formatMessageTime } from '@/utils/formatTime';
 import styles from './MessageBubble.module.scss';
 
@@ -19,6 +21,8 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
   const { beginEdit, deleteMessage, retryMessage } = useChat();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const decrypted = useDecryptedMessage(message.text);
+  const isEncrypted = isEncryptedContent(message.text);
 
   useEffect(() => {
     if (!isActive && confirmingDelete) setConfirmingDelete(false);
@@ -40,11 +44,15 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
     );
   }
 
-  const isEditable = isOwn && message.status !== 'sending' && message.status !== 'failed';
+  const canEdit =
+    isOwn &&
+    message.status !== 'sending' &&
+    message.status !== 'failed' &&
+    (decrypted.status === 'plain' || decrypted.status === 'decrypted');
 
   function handleBubbleTap(e: React.MouseEvent) {
     e.stopPropagation();
-    if (!isEditable) return;
+    if (!canEdit) return;
     onToggleActive(isActive ? null : message.id);
   }
 
@@ -78,17 +86,22 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
           type="button"
           className={styles.bubbleButton}
           onClick={handleBubbleTap}
-          disabled={!isEditable}
-          aria-haspopup={isEditable ? 'true' : undefined}
-          aria-expanded={isEditable ? isActive : undefined}
+          disabled={!canEdit}
+          aria-haspopup={canEdit ? 'true' : undefined}
+          aria-expanded={canEdit ? isActive : undefined}
         >
           <div className={styles.bubble}>
-            {message.text}
+            <BubbleContent decrypted={decrypted} />
             {message.editedAt && <span className={styles.edited}> (edited)</span>}
           </div>
         </button>
 
         <div className={styles.meta}>
+          {isEncrypted && (
+            <span className={styles.lockIcon} aria-label="Encrypted" title="Encrypted">
+              <LockIcon />
+            </span>
+          )}
           <span className={styles.time}>{formatMessageTime(message.createdAt)}</span>
           {isOwn && (
             <span className={styles.ticks}>
@@ -110,7 +123,7 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
           </button>
         )}
 
-        {isActive && isEditable && (
+        {isActive && canEdit && (
           <div className={styles.actions}>
             <button type="button" className={styles.actionPill} onClick={handleEditTap}>
               Edit
@@ -126,6 +139,29 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
         )}
       </div>
     </motion.div>
+  );
+}
+
+function BubbleContent({ decrypted }: { decrypted: ReturnType<typeof useDecryptedMessage> }) {
+  switch (decrypted.status) {
+    case 'plain':
+    case 'decrypted':
+      return <>{decrypted.text}</>;
+    case 'decrypting':
+      return <span className={styles.placeholderText}>· · ·</span>;
+    case 'locked':
+      return <span className={styles.placeholderText}>🔒 Enter your passphrase in Privacy settings to read this</span>;
+    case 'failed':
+      return <span className={styles.placeholderText}>Unable to decrypt this message</span>;
+  }
+}
+
+function LockIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
