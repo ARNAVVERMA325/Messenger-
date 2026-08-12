@@ -1,15 +1,69 @@
+import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import type { Message } from '@/types';
+import { useChat } from '@/context/ChatContext';
 import { formatMessageTime } from '@/utils/formatTime';
 import styles from './MessageBubble.module.scss';
 
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
+  isActive: boolean;
+  onToggleActive: (id: string | null) => void;
 }
 
-export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+const DELETE_CONFIRM_WINDOW_MS = 2600;
+
+export function MessageBubble({ message, isOwn, isActive, onToggleActive }: MessageBubbleProps) {
   const prefersReducedMotion = useReducedMotion();
+  const { beginEdit, deleteMessage, retryMessage } = useChat();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isActive && confirmingDelete) setConfirmingDelete(false);
+  }, [isActive, confirmingDelete]);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    };
+  }, []);
+
+  if (message.deletedAt) {
+    return (
+      <div className={`${styles.row} ${isOwn ? styles.sent : styles.received}`}>
+        <div className={`${styles.bubble} ${styles.deletedBubble}`}>
+          <span className={styles.deletedText}>This message was deleted</span>
+        </div>
+      </div>
+    );
+  }
+
+  const isEditable = isOwn && message.status !== 'sending' && message.status !== 'failed';
+
+  function handleBubbleTap(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!isEditable) return;
+    onToggleActive(isActive ? null : message.id);
+  }
+
+  function handleDeleteTap(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      confirmTimer.current = setTimeout(() => setConfirmingDelete(false), DELETE_CONFIRM_WINDOW_MS);
+      return;
+    }
+    deleteMessage(message.id);
+    onToggleActive(null);
+  }
+
+  function handleEditTap(e: React.MouseEvent) {
+    e.stopPropagation();
+    beginEdit(message.id);
+    onToggleActive(null);
+  }
 
   return (
     <motion.div
@@ -19,11 +73,21 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
     >
-      <div>
-        <div className={styles.bubble}>
-          {message.text}
-          {message.editedAt && <span className={styles.time}> (edited)</span>}
-        </div>
+      <div className={styles.column}>
+        <button
+          type="button"
+          className={styles.bubbleButton}
+          onClick={handleBubbleTap}
+          disabled={!isEditable}
+          aria-haspopup={isEditable ? 'true' : undefined}
+          aria-expanded={isEditable ? isActive : undefined}
+        >
+          <div className={styles.bubble}>
+            {message.text}
+            {message.editedAt && <span className={styles.edited}> (edited)</span>}
+          </div>
+        </button>
+
         <div className={styles.meta}>
           <span className={styles.time}>{formatMessageTime(message.createdAt)}</span>
           {isOwn && (
@@ -32,6 +96,34 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
             </span>
           )}
         </div>
+
+        {message.status === 'failed' && (
+          <button
+            type="button"
+            className={styles.retryNotice}
+            onClick={(e) => {
+              e.stopPropagation();
+              retryMessage(message.id);
+            }}
+          >
+            Not delivered — tap to retry
+          </button>
+        )}
+
+        {isActive && isEditable && (
+          <div className={styles.actions}>
+            <button type="button" className={styles.actionPill} onClick={handleEditTap}>
+              Edit
+            </button>
+            <button
+              type="button"
+              className={`${styles.actionPill} ${confirmingDelete ? styles.actionPillDanger : ''}`}
+              onClick={handleDeleteTap}
+            >
+              {confirmingDelete ? 'Tap again to delete' : 'Delete'}
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );

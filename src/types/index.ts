@@ -12,6 +12,8 @@ export interface Message {
   createdAt: number; // epoch ms
   status: MessageStatus; // meaningful only for messages sent by the local user
   editedAt?: number;
+  deletedAt?: number;
+  readAt?: number; // when the recipient read it (set on received messages once marked read)
 }
 
 export type ConnectionStatus = 'online' | 'connecting' | 'offline';
@@ -25,6 +27,7 @@ export interface Participant {
 }
 
 export interface AuthSession {
+  userId: string;
   role: SideRole;
   authenticatedAt: number;
 }

@@ -2,6 +2,7 @@ import { Navigate } from 'react-router-dom';
 import { motion, useReducedMotion, type Variants } from 'framer-motion';
 import { Logo } from '@/components/common/Logo';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
+import { FullScreenLoader } from '@/components/common/FullScreenLoader';
 import { useAuth } from '@/context/AuthContext';
 import { AccessCodeForm } from './AccessCodeForm';
 import styles from './LandingPage.module.scss';
@@ -18,8 +19,9 @@ const item: Variants = {
 
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
-  const { session } = useAuth();
+  const { session, isInitializing } = useAuth();
 
+  if (isInitializing) return <FullScreenLoader />;
   if (session) return <Navigate to="/chat" replace />;
 
   return (

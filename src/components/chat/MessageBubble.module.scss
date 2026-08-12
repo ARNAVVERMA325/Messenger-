@@ -1,4 +1,5 @@
 @use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
 
 .row {
   display: flex;
@@ -14,8 +15,37 @@
   }
 }
 
-.bubble {
+.column {
+  display: flex;
+  flex-direction: column;
   max-width: min(78%, 480px);
+}
+
+.sent .column {
+  align-items: flex-end;
+}
+
+.received .column {
+  align-items: flex-start;
+}
+
+.bubbleButton {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: inherit;
+  cursor: pointer;
+  border-radius: v.$radius-lg;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.bubble {
   padding: 0.55rem 0.85rem;
   border-radius: v.$radius-lg;
   font-size: 0.9375rem;
@@ -23,6 +53,11 @@
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  transition: filter v.$duration-fast v.$ease-out;
+}
+
+.bubbleButton:not(:disabled):active .bubble {
+  filter: brightness(0.94);
 }
 
 .sent .bubble {
@@ -35,6 +70,22 @@
   background: var(--color-bubble-received-bg);
   color: var(--color-bubble-received-text);
   border-bottom-left-radius: v.$radius-sm;
+}
+
+.deletedBubble {
+  background: transparent;
+  border: 1px dashed var(--color-border-strong);
+}
+
+.deletedText {
+  font-size: 0.8125rem;
+  font-style: italic;
+  color: var(--color-text-tertiary);
+}
+
+.edited {
+  opacity: 0.7;
+  font-size: 0.8em;
 }
 
 .meta {
@@ -66,4 +117,36 @@
 
 .ticksRead {
   color: #4fb3e8;
+}
+
+.retryNotice {
+  @include m.focus-ring;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  gap: v.$space-2;
+  margin-top: v.$space-2;
+}
+
+.actionPill {
+  @include m.focus-ring;
+  padding: 0.35rem 0.8rem;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.actionPillDanger {
+  background: var(--color-danger-bg);
+  border-color: transparent;
+  color: var(--color-danger);
 }

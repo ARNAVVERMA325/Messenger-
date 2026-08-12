@@ -1,11 +1,21 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useChat } from '@/context/ChatContext';
 import styles from './MessageInput.module.scss';
 
 export function MessageInput() {
-  const { sendMessage, notifyTyping } = useChat();
+  const { sendMessage, notifyTyping, editingMessage, editMessage, cancelEdit } = useChat();
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const isEditing = Boolean(editingMessage);
+
+  useEffect(() => {
+    if (editingMessage) {
+      setValue(editingMessage.text);
+      textareaRef.current?.focus();
+      requestAnimationFrame(resize);
+    }
+  }, [editingMessage]);
 
   function resize() {
     const el = textareaRef.current;
@@ -16,14 +26,25 @@ export function MessageInput() {
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setValue(e.target.value);
-    notifyTyping();
+    if (!isEditing) notifyTyping();
     requestAnimationFrame(resize);
   }
 
   function submit() {
     const trimmed = value.trim();
     if (!trimmed) return;
-    sendMessage(trimmed);
+
+    if (editingMessage) {
+      editMessage(editingMessage.id, trimmed);
+    } else {
+      sendMessage(trimmed);
+    }
+    setValue('');
+    requestAnimationFrame(resize);
+  }
+
+  function handleCancelEdit() {
+    cancelEdit();
     setValue('');
     requestAnimationFrame(resize);
   }
@@ -33,10 +54,21 @@ export function MessageInput() {
       e.preventDefault();
       submit();
     }
+    if (e.key === 'Escape' && isEditing) {
+      handleCancelEdit();
+    }
   }
 
   return (
     <div className={styles.wrap}>
+      {isEditing && (
+        <div className={styles.editingBanner}>
+          <span>Editing message</span>
+          <button type="button" onClick={handleCancelEdit} className={styles.editingCancel}>
+            Cancel
+          </button>
+        </div>
+      )}
       <form
         className={styles.form}
         onSubmit={(e) => {
@@ -57,8 +89,13 @@ export function MessageInput() {
             autoComplete="off"
           />
         </div>
-        <button type="submit" className={styles.sendButton} disabled={!value.trim()} aria-label="Send message">
-          <SendIcon />
+        <button
+          type="submit"
+          className={styles.sendButton}
+          disabled={!value.trim()}
+          aria-label={isEditing ? 'Save edit' : 'Send message'}
+        >
+          {isEditing ? <CheckIcon /> : <SendIcon />}
         </button>
       </form>
     </div>
@@ -75,6 +112,14 @@ function SendIcon() {
         strokeLinejoin="round"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 12.5l5 5L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

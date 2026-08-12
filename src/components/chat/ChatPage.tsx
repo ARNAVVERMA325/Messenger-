@@ -24,7 +24,7 @@ export function ChatPage() {
   if (!session) return null; // guarded by ProtectedRoute; this satisfies TypeScript
 
   return (
-    <ChatProvider myRole={session.role}>
+    <ChatProvider session={session}>
       <ChatPageInner />
     </ChatProvider>
   );
