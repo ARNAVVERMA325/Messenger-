@@ -1,0 +1,19 @@
+@use '@/styles/variables' as v;
+
+.separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: v.$space-4 0;
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  background: var(--color-surface-alt);
+  padding: v.$space-1 v.$space-3;
+  border-radius: v.$radius-pill;
+}

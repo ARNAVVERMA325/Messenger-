@@ -1,0 +1,129 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: v.$space-3;
+}
+
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: v.$radius-xl;
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color v.$duration-fast v.$ease-out,
+    box-shadow v.$duration-fast v.$ease-out;
+
+  &:focus-within {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 4px rgba(226, 165, 109, 0.14);
+  }
+
+  &.hasError {
+    border-color: var(--color-danger);
+  }
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: v.$space-4 v.$space-2 v.$space-4 v.$space-5;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+
+  // iOS/Android: >=16px prevents automatic zoom-on-focus.
+  @media (max-width: v.$bp-sm) {
+    font-size: 16px;
+  }
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+    letter-spacing: normal;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.reveal {
+  @include m.touch-target(44px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  border-radius: v.$radius-pill;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.submit {
+  @include m.touch-target(v.$input-min-height);
+  @include m.focus-ring;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: v.$space-2;
+  padding: v.$space-4;
+  margin-right: v.$space-2;
+  border-radius: v.$radius-pill;
+  background: var(--accent-gradient);
+  color: var(--color-on-accent);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  transition:
+    transform v.$duration-fast v.$ease-out,
+    opacity v.$duration-fast v.$ease-out,
+    box-shadow v.$duration-fast v.$ease-out;
+
+  &:not(:disabled):hover {
+    box-shadow: 0 6px 20px -6px rgba(201, 111, 92, 0.55);
+  }
+
+  &:not(:disabled):active {
+    transform: scale(0.96);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.submitLabel {
+  @include m.from(v.$bp-sm) {
+    display: inline;
+  }
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  padding: 0 v.$space-3;
+  font-size: 0.8125rem;
+  color: var(--color-danger);
+  text-align: left;
+}
+
+.hint {
+  padding: 0 v.$space-3;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  text-align: left;
+}

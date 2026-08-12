@@ -1,0 +1,90 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.page {
+  position: relative;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.glow {
+  position: absolute;
+  inset: -20% -20% auto -20%;
+  height: 70vh;
+  background: radial-gradient(closest-side, rgba(226, 165, 109, 0.22), transparent 70%);
+  pointer-events: none;
+  filter: blur(10px);
+
+  :global([data-theme='light']) & {
+    background: radial-gradient(closest-side, rgba(201, 111, 92, 0.16), transparent 70%);
+  }
+}
+
+.topBar {
+  @include m.safe-top;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: v.$space-4 v.$space-4 0;
+  z-index: 1;
+
+  @include m.from(v.$bp-md) {
+    padding: v.$space-5 v.$space-6 0;
+  }
+}
+
+.content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: v.$space-6 v.$space-4 v.$space-7;
+  z-index: 1;
+  text-align: center;
+}
+
+.hero {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mark {
+  margin-bottom: v.$space-5;
+}
+
+.title {
+  font-size: clamp(1.75rem, 6vw, 2.4rem);
+  color: var(--color-text);
+  margin-bottom: v.$space-2;
+}
+
+.tagline {
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+  max-width: 30ch;
+  margin-bottom: v.$space-7;
+}
+
+.formWrap {
+  width: 100%;
+}
+
+.footer {
+  @include m.safe-bottom;
+  position: relative;
+  text-align: center;
+  padding: 0 v.$space-4 v.$space-5;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  z-index: 1;
+}

@@ -1,0 +1,15 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--color-bg);
+}
+
+.center {
+  width: 100%;
+  max-width: v.$chat-max-width;
+  margin: 0 auto;
+}

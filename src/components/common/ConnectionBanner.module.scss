@@ -1,0 +1,53 @@
+@use '@/styles/variables' as v;
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: v.$space-2;
+  padding: v.$space-2 v.$space-4;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: center;
+  overflow: hidden;
+}
+
+.offline {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.connecting {
+  background: var(--color-surface-alt);
+  color: var(--color-text-secondary);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  flex-shrink: 0;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

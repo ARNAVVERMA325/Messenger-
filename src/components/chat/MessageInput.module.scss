@@ -1,0 +1,76 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.wrap {
+  @include m.safe-bottom;
+  flex-shrink: 0;
+  padding: v.$space-3 v.$space-4;
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border);
+}
+
+.form {
+  display: flex;
+  align-items: flex-end;
+  gap: v.$space-2;
+}
+
+.field {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  background: var(--color-surface-alt);
+  border: 1.5px solid transparent;
+  border-radius: v.$radius-xl;
+  padding: 0.35rem 0.35rem 0.35rem v.$space-4;
+  transition: border-color v.$duration-fast v.$ease-out;
+
+  &:focus-within {
+    border-color: var(--color-accent);
+  }
+}
+
+.textarea {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  max-height: 120px;
+  min-height: 24px;
+  padding: 0.5rem 0;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  color: var(--color-text);
+
+  @media (max-width: v.$bp-sm) {
+    font-size: 16px;
+  }
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+  }
+}
+
+.sendButton {
+  @include m.touch-target(40px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-gradient);
+  color: var(--color-on-accent);
+  flex-shrink: 0;
+  margin-bottom: 2px;
+  transition:
+    transform v.$duration-fast v.$ease-out,
+    opacity v.$duration-fast v.$ease-out;
+
+  &:disabled {
+    opacity: 0.4;
+    background: var(--color-text-tertiary);
+  }
+
+  &:not(:disabled):active {
+    transform: scale(0.88);
+  }
+}

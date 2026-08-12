@@ -1,0 +1,57 @@
+@use 'reset';
+@use 'theme';
+@use 'variables' as v;
+@use 'mixins' as m;
+
+html {
+  background: var(--color-bg);
+  color-scheme: light dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition:
+    background-color v.$duration-base v.$ease-out,
+    color v.$duration-base v.$ease-out;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.visually-hidden {
+  @include m.visually-hidden;
+}
+
+// Global focus handling: only show rings for keyboard users.
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: v.$radius-sm;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+@include m.reduced-motion {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

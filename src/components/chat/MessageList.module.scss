@@ -1,0 +1,65 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.scrollArea {
+  @include m.custom-scrollbar;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: v.$space-4;
+  padding-bottom: v.$space-2;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.sentinel {
+  height: 1px;
+}
+
+.loadingMore {
+  display: flex;
+  justify-content: center;
+  padding: v.$space-3;
+  color: var(--color-text-tertiary);
+}
+
+.jumpButton {
+  @include m.focus-ring;
+  position: absolute;
+  right: v.$space-4;
+  bottom: v.$space-4;
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  padding: v.$space-2 v.$space-4 v.$space-2 v.$space-3;
+  border-radius: v.$radius-pill;
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-strong);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: v.$radius-pill;
+  background: var(--accent-gradient);
+  color: var(--color-on-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.listWrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}

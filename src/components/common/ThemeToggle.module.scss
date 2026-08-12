@@ -1,0 +1,31 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.button {
+  @include m.touch-target(44px);
+  @include m.focus-ring;
+
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  transition:
+    background-color v.$duration-fast v.$ease-out,
+    transform v.$duration-fast v.$ease-out;
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+.icon {
+  display: block;
+  transition: transform v.$duration-slow v.$ease-out, opacity v.$duration-base v.$ease-out;
+}

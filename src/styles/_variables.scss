@@ -1,0 +1,42 @@
+// Static design tokens (compile-time). Theme colors live in _theme.scss as
+// CSS custom properties so they can switch at runtime without a rebuild.
+
+// Spacing scale (4px base)
+$space-1: 0.25rem; // 4px
+$space-2: 0.5rem; // 8px
+$space-3: 0.75rem; // 12px
+$space-4: 1rem; // 16px
+$space-5: 1.5rem; // 24px
+$space-6: 2rem; // 32px
+$space-7: 3rem; // 48px
+$space-8: 4rem; // 64px
+
+// Radii
+$radius-sm: 10px;
+$radius-md: 16px;
+$radius-lg: 22px;
+$radius-xl: 28px;
+$radius-pill: 999px;
+
+// Breakpoints (mobile-first: styles default to mobile, mixin adds min-width up)
+$bp-sm: 480px;
+$bp-md: 768px;
+$bp-lg: 1024px;
+
+// Motion
+$ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+$ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+$duration-fast: 120ms;
+$duration-base: 220ms;
+$duration-slow: 420ms;
+
+// Z-index scale
+$z-base: 1;
+$z-sticky: 10;
+$z-overlay: 100;
+$z-modal: 200;
+$z-toast: 300;
+
+// Layout
+$chat-max-width: 640px;
+$input-min-height: 48px;
