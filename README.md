@@ -6,14 +6,16 @@ built like a real messaging product underneath, not a mockup.
 Built in phases, reviewed as it goes. See **Project status** below for what's
 real today and what's still a placeholder.
 
-## Project status — Phase 4 of 7
+## Project status — Phase 5 of 7
 
 **Phase 1 (Product + UI)** shipped a complete, polished mobile-first
 interface. **Phase 2 (Real messaging)** replaced the simulated backend with
 Supabase Postgres + Realtime. **Phase 3 (Authentication + security)**
 replaced Phase 2's "anyone authenticated can claim a seat" placeholder with
-real, server-verified access codes. **Phase 4 (Privacy layer)** adds
-optional client-side message encryption — see its own section below.
+real, server-verified access codes. **Phase 4 (Privacy layer)** added
+optional client-side message encryption. **Phase 5 (Personal features)**
+adds real names and reply-to-message — deliberately just those two, see
+below.
 
 **What's real right now:**
 - **Access codes are actually verified**, server-side, in the
@@ -168,15 +170,41 @@ not something a generic messaging app assumes:
   identically either way; this only affects how much old history gets
   fetched up front.
 
+## Personal features
+
+The product spec's Phase 5 list includes avatars, reactions, pinned/
+favorite messages, search, attachments, notes, and a shared calendar.
+Shipped exactly two of those, on purpose (see the product rule about
+staying small, not becoming a bloated social network) — the two that
+came up as genuinely wanted, not the full list for its own sake:
+
+- **Real names instead of "A"/"B".** Settings (the lock icon in the chat
+  header) → Profile → set your name. Self-service only — you can only ever
+  set your own, never the other side's. Shows up for the other person
+  live, no refresh needed.
+- **Reply-to-message.** Tap any message (yours or theirs) → Reply. Useful
+  for a conversation that isn't continuous — referencing something from
+  three weeks ago actually works instead of everyone re-explaining what
+  they mean.
+
+Reactions, pinned messages, and search are natural next additions if you
+want them — the schema and component patterns here (see `MessageBubble`'s
+tap-to-reveal actions, and how `reply_to_id` was added) are built to
+extend the same way. Attachments and a shared notebook/calendar are bigger
+scope changes (storage, sync model) that deserve their own deliberate pass
+rather than being bolted on, especially given the low-bandwidth use case
+above.
+
 ## Roadmap
 
 1. Product + UI
 2. Real messaging — backend + realtime, history, pagination, edit/delete
 3. Authentication + security — server-verified secret check, rate
    limiting, real sign-out
-4. **Optional client-side privacy layer** *(this phase)* — AES-GCM message
-   encryption, documented threat model (see "Privacy layer" above)
-5. Personal features (nicknames, avatars, reactions, pinned/favorite messages, etc.)
+4. Optional client-side privacy layer — AES-GCM message encryption,
+   documented threat model (see "Privacy layer" above)
+5. **Personal features** *(this phase)* — real names, reply-to-message
+   (see "Personal features" above)
 6. Polish (motion, skeletons, offline handling, accessibility)
 7. Security + bug audit (two full passes)
 
@@ -188,9 +216,9 @@ beyond a "backend not configured" screen. You'll also need the
 (`supabase login`) to deploy the Edge Function and set its secrets.
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the SQL Editor, run the three files in `supabase/migrations/` in
+2. In the SQL Editor, run the four files in `supabase/migrations/` in
    order (`0001_init.sql`, `0002_phase3_security.sql`,
-   `0003_phase4_privacy.sql`).
+   `0003_phase4_privacy.sql`, `0004_phase5_personal.sql`).
 3. **Required manual step:** in the dashboard, go to **Project Settings →
    Realtime** and turn **off** "Allow public access". The migrations define
    RLS policies for the realtime channel (presence/typing), but they're only

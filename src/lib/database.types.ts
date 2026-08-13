@@ -22,4 +22,5 @@ export interface MessageRow {
   deleted_at: string | null;
   delivered_at: string | null;
   read_at: string | null;
+  reply_to_id: string | null;
 }

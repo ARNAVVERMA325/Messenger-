@@ -14,6 +14,7 @@ export interface Message {
   editedAt?: number;
   deletedAt?: number;
   readAt?: number; // when the recipient read it (set on received messages once marked read)
+  replyToId?: string;
 }
 
 export type ConnectionStatus = 'online' | 'connecting' | 'offline';

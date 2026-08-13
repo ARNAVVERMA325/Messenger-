@@ -18,7 +18,7 @@ const DELETE_CONFIRM_WINDOW_MS = 2600;
 
 export function MessageBubble({ message, isOwn, isActive, onToggleActive }: MessageBubbleProps) {
   const prefersReducedMotion = useReducedMotion();
-  const { beginEdit, deleteMessage, retryMessage } = useChat();
+  const { beginEdit, beginReply, deleteMessage, retryMessage } = useChat();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const decrypted = useDecryptedMessage(message.text);
@@ -44,15 +44,16 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
     );
   }
 
-  const canEdit =
-    isOwn &&
-    message.status !== 'sending' &&
-    message.status !== 'failed' &&
-    (decrypted.status === 'plain' || decrypted.status === 'decrypted');
+  // A still-sending or failed-to-send message keeps its client-only
+  // "temp:" id until the server confirms it — replying/editing/deleting it
+  // before then has nothing real to point at yet.
+  const hasRealId = !message.id.startsWith('temp:');
+  const canInteract = hasRealId && (decrypted.status === 'plain' || decrypted.status === 'decrypted');
+  const canEdit = isOwn && canInteract;
 
   function handleBubbleTap(e: React.MouseEvent) {
     e.stopPropagation();
-    if (!canEdit) return;
+    if (!canInteract) return;
     onToggleActive(isActive ? null : message.id);
   }
 
@@ -73,6 +74,12 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
     onToggleActive(null);
   }
 
+  function handleReplyTap(e: React.MouseEvent) {
+    e.stopPropagation();
+    beginReply(message.id);
+    onToggleActive(null);
+  }
+
   return (
     <motion.div
       className={`${styles.row} ${isOwn ? styles.sent : styles.received}`}
@@ -86,11 +93,12 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
           type="button"
           className={styles.bubbleButton}
           onClick={handleBubbleTap}
-          disabled={!canEdit}
-          aria-haspopup={canEdit ? 'true' : undefined}
-          aria-expanded={canEdit ? isActive : undefined}
+          disabled={!canInteract}
+          aria-haspopup={canInteract ? 'true' : undefined}
+          aria-expanded={canInteract ? isActive : undefined}
         >
           <div className={styles.bubble}>
+            {message.replyToId && <ReplyQuote replyToId={message.replyToId} />}
             <BubbleContent decrypted={decrypted} />
             {message.editedAt && <span className={styles.edited}> (edited)</span>}
           </div>
@@ -123,22 +131,58 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
           </button>
         )}
 
-        {isActive && canEdit && (
+        {isActive && canInteract && (
           <div className={styles.actions}>
-            <button type="button" className={styles.actionPill} onClick={handleEditTap}>
-              Edit
+            <button type="button" className={styles.actionPill} onClick={handleReplyTap}>
+              Reply
             </button>
-            <button
-              type="button"
-              className={`${styles.actionPill} ${confirmingDelete ? styles.actionPillDanger : ''}`}
-              onClick={handleDeleteTap}
-            >
-              {confirmingDelete ? 'Tap again to delete' : 'Delete'}
-            </button>
+            {canEdit && (
+              <button type="button" className={styles.actionPill} onClick={handleEditTap}>
+                Edit
+              </button>
+            )}
+            {canEdit && (
+              <button
+                type="button"
+                className={`${styles.actionPill} ${confirmingDelete ? styles.actionPillDanger : ''}`}
+                onClick={handleDeleteTap}
+              >
+                {confirmingDelete ? 'Tap again to delete' : 'Delete'}
+              </button>
+            )}
           </div>
         )}
       </div>
     </motion.div>
+  );
+}
+
+function ReplyQuote({ replyToId }: { replyToId: string }) {
+  const { messages, myRole, other } = useChat();
+  const original = messages.find((m) => m.id === replyToId);
+  const decrypted = useDecryptedMessage(original?.text ?? '');
+
+  if (!original) {
+    return (
+      <div className={styles.replyQuote}>
+        <span className={styles.replyQuoteText}>Original message unavailable</span>
+      </div>
+    );
+  }
+
+  const senderName = original.senderRole === myRole ? 'You' : other.name;
+  let previewText: string;
+  if (original.deletedAt) previewText = 'This message was deleted';
+  else if (decrypted.status === 'plain' || decrypted.status === 'decrypted') previewText = decrypted.text;
+  else if (decrypted.status === 'locked') previewText = '🔒 Locked message';
+  else if (decrypted.status === 'failed') previewText = 'Unable to decrypt';
+  else previewText = '···';
+
+  return (
+    <div className={styles.replyQuote}>
+      <span className={styles.replyQuoteSender}>{senderName}</span>
+      <span className={styles.replyQuoteText}>{previewText}</span>
+    </div>
   );
 }
 

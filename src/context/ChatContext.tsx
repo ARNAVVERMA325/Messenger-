@@ -56,6 +56,7 @@ function mapRow(row: MessageRow, myRole: SideRole): Message {
     editedAt: row.edited_at ? new Date(row.edited_at).getTime() : undefined,
     deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : undefined,
     readAt: row.read_at ? new Date(row.read_at).getTime() : undefined,
+    replyToId: row.reply_to_id ?? undefined,
   };
 }
 
@@ -94,13 +95,17 @@ interface ChatContextValue {
   arePastChatsShown: boolean;
   loadMoreHistory: () => void;
   showPastChats: () => void;
-  sendMessage: (text: string) => void;
+  setDisplayName: (name: string) => Promise<boolean>;
+  sendMessage: (text: string, replyToId?: string) => void;
   retryMessage: (tempId: string) => void;
   deleteMessage: (id: string) => void;
   editMessage: (id: string, text: string) => void;
   editingMessage: { id: string; text: string } | null;
   beginEdit: (id: string) => void;
   cancelEdit: () => void;
+  replyingTo: string | null;
+  beginReply: (id: string) => void;
+  cancelReply: () => void;
   clearUnread: () => void;
   notifyTyping: () => void;
 }
@@ -124,6 +129,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const [browserOnline, setBrowserOnline] = useState(typeof navigator === 'undefined' || navigator.onLine);
   const [realtimeReady, setRealtimeReady] = useState(false);
   const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [initialUnreadMessageId, setInitialUnreadMessageId] = useState<string | null>(null);
 
   const messagesRef = useRef<Message[]>([]);
@@ -133,7 +139,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const typingClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentAt = useRef(0);
   const hasConnectedOnce = useRef(false);
-  const tempTextById = useRef<Map<string, string>>(new Map());
+  const tempPayloadById = useRef<Map<string, { text: string; replyToId?: string }>>(new Map());
 
   const markDelivered = useCallback((ids: string[]) => {
     if (!supabase || ids.length === 0) return;
@@ -232,6 +238,20 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       });
   }, []);
 
+  const setDisplayName = useCallback(
+    async (name: string) => {
+      if (!supabase) return false;
+      const { data, error } = await supabase.rpc('set_display_name', { p_name: name });
+      if (error || !data) {
+        console.error('Failed to set display name', error);
+        return false;
+      }
+      setMembersByRole((prev) => ({ ...prev, [myRole]: data as RoomMemberRow }));
+      return true;
+    },
+    [myRole],
+  );
+
   // --- Realtime: messages + presence + typing ---------------------------
   useEffect(() => {
     if (!supabase) return;
@@ -261,6 +281,15 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       (payload: RealtimePostgresChangesPayload<MessageRow>) => {
         const row = payload.new as MessageRow;
         setMessages((prev) => upsert(prev, mapRow(row, myRole)));
+      },
+    );
+
+    channel.on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'room_members' },
+      (payload: RealtimePostgresChangesPayload<RoomMemberRow>) => {
+        const row = payload.new as RoomMemberRow;
+        setMembersByRole((prev) => ({ ...prev, [row.role]: row }));
       },
     );
 
@@ -384,24 +413,24 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   }, [loadMoreHistory]);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, replyToId?: string) => {
       if (!supabase) return;
       const trimmed = text.trim();
       if (!trimmed) return;
 
       const tempId = `temp:${createId()}`;
-      tempTextById.current.set(tempId, trimmed);
+      tempPayloadById.current.set(tempId, { text: trimmed, replyToId });
 
       setMessages((prev) => [
         ...prev,
-        { id: tempId, senderRole: myRole, text: trimmed, createdAt: Date.now(), status: 'sending' },
+        { id: tempId, senderRole: myRole, text: trimmed, createdAt: Date.now(), status: 'sending', replyToId },
       ]);
 
       (async () => {
         const contentToStore = await encryptOutgoing(trimmed);
         const { data, error } = await supabase
           .from('messages')
-          .insert({ sender_id: userId, sender_role: myRole, content: contentToStore })
+          .insert({ sender_id: userId, sender_role: myRole, content: contentToStore, reply_to_id: replyToId ?? null })
           .select()
           .single();
 
@@ -410,7 +439,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
           setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
           return;
         }
-        tempTextById.current.delete(tempId);
+        tempPayloadById.current.delete(tempId);
         // Keep the known plaintext rather than round-tripping our own
         // message through decrypt() — avoids a "decrypting…" flash on send.
         setMessages((prev) =>
@@ -423,11 +452,11 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
 
   const retryMessage = useCallback(
     (tempId: string) => {
-      const text = tempTextById.current.get(tempId);
-      if (!text) return;
-      tempTextById.current.delete(tempId);
+      const payload = tempPayloadById.current.get(tempId);
+      if (!payload) return;
+      tempPayloadById.current.delete(tempId);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      sendMessage(text);
+      sendMessage(payload.text, payload.replyToId);
     },
     [sendMessage],
   );
@@ -457,12 +486,25 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       // it to real plaintext before handing it to the edit input.
       const result = await decrypt(message.text);
       if (result.status !== 'plain' && result.status !== 'decrypted') return;
+      setReplyingTo(null); // editing and replying are mutually exclusive input modes
       setEditingMessage({ id, text: result.text });
     },
     [myRole, decrypt],
   );
 
   const cancelEdit = useCallback(() => setEditingMessage(null), []);
+
+  const beginReply = useCallback(
+    (id: string) => {
+      const message = messagesRef.current.find((m) => m.id === id);
+      if (!message || message.deletedAt || message.id.startsWith('temp:')) return;
+      setEditingMessage(null);
+      setReplyingTo(id);
+    },
+    [],
+  );
+
+  const cancelReply = useCallback(() => setReplyingTo(null), []);
 
   const deleteMessage = useCallback(
     (id: string) => {
@@ -527,6 +569,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       arePastChatsShown,
       loadMoreHistory,
       showPastChats,
+      setDisplayName,
       sendMessage,
       retryMessage,
       deleteMessage,
@@ -534,6 +577,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       editingMessage,
       beginEdit,
       cancelEdit,
+      replyingTo,
+      beginReply,
+      cancelReply,
       clearUnread,
       notifyTyping,
     }),
@@ -553,6 +599,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       arePastChatsShown,
       loadMoreHistory,
       showPastChats,
+      setDisplayName,
       sendMessage,
       retryMessage,
       deleteMessage,
@@ -560,6 +607,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       editingMessage,
       beginEdit,
       cancelEdit,
+      replyingTo,
+      beginReply,
+      cancelReply,
       clearUnread,
       notifyTyping,
     ],

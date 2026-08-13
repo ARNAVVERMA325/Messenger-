@@ -65,6 +65,19 @@
   margin-bottom: v.$space-4;
 }
 
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  color: var(--color-text);
+  padding-top: v.$space-4;
+  border-top: 1px solid var(--color-border);
+
+  &:first-of-type {
+    padding-top: 0;
+    border-top: none;
+  }
+}
+
 .section {
   padding: v.$space-4 0;
   border-top: 1px solid var(--color-border);

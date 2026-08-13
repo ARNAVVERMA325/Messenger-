@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useChat } from '@/context/ChatContext';
+import { useDecryptedMessage } from '@/hooks/useDecryptedMessage';
 import { MAX_MESSAGE_LENGTH } from '@/utils/constants';
 import styles from './MessageInput.module.scss';
 
 export function MessageInput() {
-  const { sendMessage, notifyTyping, editingMessage, editMessage, cancelEdit } = useChat();
+  const { sendMessage, notifyTyping, editingMessage, editMessage, cancelEdit, replyingTo, cancelReply } = useChat();
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -17,6 +18,10 @@ export function MessageInput() {
       requestAnimationFrame(resize);
     }
   }, [editingMessage]);
+
+  useEffect(() => {
+    if (replyingTo) textareaRef.current?.focus();
+  }, [replyingTo]);
 
   function resize() {
     const el = textareaRef.current;
@@ -38,7 +43,8 @@ export function MessageInput() {
     if (editingMessage) {
       editMessage(editingMessage.id, trimmed);
     } else {
-      sendMessage(trimmed);
+      sendMessage(trimmed, replyingTo ?? undefined);
+      if (replyingTo) cancelReply();
     }
     setValue('');
     requestAnimationFrame(resize);
@@ -55,8 +61,9 @@ export function MessageInput() {
       e.preventDefault();
       submit();
     }
-    if (e.key === 'Escape' && isEditing) {
-      handleCancelEdit();
+    if (e.key === 'Escape') {
+      if (isEditing) handleCancelEdit();
+      else if (replyingTo) cancelReply();
     }
   }
 
@@ -70,6 +77,7 @@ export function MessageInput() {
           </button>
         </div>
       )}
+      {!isEditing && replyingTo && <ReplyPreviewBanner replyToId={replyingTo} onCancel={cancelReply} />}
       <form
         className={styles.form}
         onSubmit={(e) => {
@@ -101,6 +109,43 @@ export function MessageInput() {
         </button>
       </form>
     </div>
+  );
+}
+
+function ReplyPreviewBanner({ replyToId, onCancel }: { replyToId: string; onCancel: () => void }) {
+  const { messages, myRole, other } = useChat();
+  const original = messages.find((m) => m.id === replyToId);
+  const decrypted = useDecryptedMessage(original?.text ?? '');
+
+  let previewText = 'Message unavailable';
+  if (original) {
+    if (original.deletedAt) previewText = 'This message was deleted';
+    else if (decrypted.status === 'plain' || decrypted.status === 'decrypted') previewText = decrypted.text;
+    else if (decrypted.status === 'locked') previewText = '🔒 Locked message';
+    else if (decrypted.status === 'failed') previewText = 'Unable to decrypt';
+    else previewText = '···';
+  }
+
+  return (
+    <div className={styles.replyBanner}>
+      <div className={styles.replyBannerContent}>
+        <span className={styles.replyBannerSender}>
+          Replying to {original ? (original.senderRole === myRole ? 'yourself' : other.name) : '…'}
+        </span>
+        <span className={styles.replyBannerText}>{previewText}</span>
+      </div>
+      <button type="button" onClick={onCancel} className={styles.replyBannerCancel} aria-label="Cancel reply">
+        <CancelIcon />
+      </button>
+    </div>
+  );
+}
+
+function CancelIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 

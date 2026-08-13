@@ -93,6 +93,31 @@
   opacity: 0.75;
 }
 
+.replyQuote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: v.$space-1 v.$space-2;
+  margin-bottom: v.$space-2;
+  border-left: 2px solid currentColor;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  opacity: 0.9;
+}
+
+.replyQuoteSender {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.replyQuoteText {
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
 .meta {
   display: flex;
   align-items: center;

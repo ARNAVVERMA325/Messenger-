@@ -4,14 +4,14 @@ import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/context/ChatContext';
 import { useEncryption } from '@/context/EncryptionContext';
 import { formatLastSeen } from '@/utils/formatTime';
-import { PrivacySettings } from './PrivacySettings';
+import { Settings } from './Settings';
 import styles from './ChatHeader.module.scss';
 
 export function ChatHeader() {
   const { other, typingRole, otherRole } = useChat();
   const { logout } = useAuth();
   const { isEnabled: encryptionEnabled } = useEncryption();
-  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const isTyping = typingRole === otherRole;
 
@@ -44,8 +44,8 @@ export function ChatHeader() {
       <button
         type="button"
         className={styles.iconButton}
-        onClick={() => setIsPrivacyOpen(true)}
-        aria-label="Privacy settings"
+        onClick={() => setIsSettingsOpen(true)}
+        aria-label="Settings"
       >
         <LockIcon filled={encryptionEnabled} />
       </button>
@@ -59,9 +59,7 @@ export function ChatHeader() {
         <LeaveIcon />
       </button>
 
-      <AnimatePresence>
-        {isPrivacyOpen && <PrivacySettings onClose={() => setIsPrivacyOpen(false)} />}
-      </AnimatePresence>
+      <AnimatePresence>{isSettingsOpen && <Settings onClose={() => setIsSettingsOpen(false)} />}</AnimatePresence>
     </header>
   );
 }

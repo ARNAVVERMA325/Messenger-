@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { useChat } from '@/context/ChatContext';
 import { useEncryption } from '@/context/EncryptionContext';
-import styles from './PrivacySettings.module.scss';
+import styles from './Settings.module.scss';
 
 const FORGET_CONFIRM_WINDOW_MS = 2600;
 
-export function PrivacySettings({ onClose }: { onClose: () => void }) {
+export function Settings({ onClose }: { onClose: () => void }) {
   const { isSupported, hasKey, isEnabled, setPassphrase, setEnabled, forgetKey } = useEncryption();
+  const { me, myRole, setDisplayName } = useChat();
   const [passphraseInput, setPassphraseInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [confirmingForget, setConfirmingForget] = useState(false);
   const forgetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prefersReducedMotion = useReducedMotion();
+
+  const [nameInput, setNameInput] = useState(me.name === myRole ? '' : me.name);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameJustSaved, setNameJustSaved] = useState(false);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -25,6 +31,21 @@ export function PrivacySettings({ onClose }: { onClose: () => void }) {
   useEffect(() => () => {
     if (forgetTimer.current) clearTimeout(forgetTimer.current);
   }, []);
+
+  async function handleSaveName(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nameInput.trim() || isSavingName) return;
+    setIsSavingName(true);
+    try {
+      const ok = await setDisplayName(nameInput.trim());
+      if (ok) {
+        setNameJustSaved(true);
+        setTimeout(() => setNameJustSaved(false), 3000);
+      }
+    } finally {
+      setIsSavingName(false);
+    }
+  }
 
   async function handleSavePassphrase(e: React.FormEvent) {
     e.preventDefault();
@@ -57,18 +78,44 @@ export function PrivacySettings({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Privacy settings"
+        aria-label="Settings"
         initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className={styles.header}>
-          <span className={styles.title}>Privacy</span>
+          <span className={styles.title}>Settings</span>
           <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Close">
             <CloseIcon />
           </button>
         </div>
+
+        <h3 className={styles.sectionTitle}>Profile</h3>
+        <div className={styles.section}>
+          <label className={styles.label} htmlFor="settings-name">
+            Your name
+          </label>
+          <form className={styles.passphraseRow} onSubmit={handleSaveName}>
+            <input
+              id="settings-name"
+              className={styles.passphraseInput}
+              type="text"
+              maxLength={40}
+              autoComplete="off"
+              placeholder={`Currently "${me.name}"`}
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+            />
+            <button type="submit" className={styles.saveButton} disabled={!nameInput.trim() || isSavingName}>
+              {isSavingName ? 'Saving…' : 'Save'}
+            </button>
+          </form>
+          {nameJustSaved && <p className={styles.confirmation}>Saved.</p>}
+          <p className={styles.hint}>Shown to the other side instead of "{myRole}".</p>
+        </div>
+
+        <h3 className={styles.sectionTitle}>Privacy</h3>
 
         {!isSupported ? (
           <p className={styles.unsupported}>
