@@ -150,6 +150,24 @@ a generic rainbow-table attack but not one built specifically targeting
 this deployment's salt — set a unique `VITE_ENCRYPTION_SALT` per
 deployment and pick a passphrase that isn't a common word or short phrase.
 
+## Designed for infrequent, low-bandwidth visits
+
+Two behaviors exist specifically because one of you may only open this app
+for a few minutes at a time, from a borrowed device, on a slow connection —
+not something a generic messaging app assumes:
+
+- **Opens to what's new, not the bottom.** If there's a message you haven't
+  seen, the chat opens scrolled to the first one, with an "Unread" divider
+  — not dumped at the very latest message with everything new buried above
+  it. See `initialUnreadMessageId` in `ChatContext`.
+- **Fast by default, full history on request.** Opening the chat only
+  fetches the last 15 messages (`FAST_LOAD_LIMIT`), not the usual 30, and
+  doesn't paginate further until you tap **Show past chats**. That choice
+  is never remembered — it's off again the next time the chat is opened,
+  every time, on purpose. Sending and receiving new messages work
+  identically either way; this only affects how much old history gets
+  fetched up front.
+
 ## Roadmap
 
 1. Product + UI

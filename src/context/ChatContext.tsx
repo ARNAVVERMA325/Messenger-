@@ -29,6 +29,12 @@ import { useEncryption } from '@/context/EncryptionContext';
  */
 
 const PAGE_SIZE = 30;
+// The initial load fetches this many messages instead of a full PAGE_SIZE —
+// deliberately small so opening the chat is fast and light on data for
+// someone with a slow connection or only a couple of minutes on a borrowed
+// device. "Show past chats" (off by default, and never persisted — it
+// resets every time the chat is opened fresh) loads the rest on request.
+const FAST_LOAD_LIMIT = 15;
 const TYPING_BROADCAST_THROTTLE_MS = 2000;
 const TYPING_INDICATOR_TIMEOUT_MS = 2800;
 const PRESENCE_HEARTBEAT_MS = 25_000;
@@ -85,7 +91,9 @@ interface ChatContextValue {
   isLoadingHistory: boolean;
   isLoadingMore: boolean;
   hasMoreHistory: boolean;
+  arePastChatsShown: boolean;
   loadMoreHistory: () => void;
+  showPastChats: () => void;
   sendMessage: (text: string) => void;
   retryMessage: (tempId: string) => void;
   deleteMessage: (id: string) => void;
@@ -108,6 +116,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [arePastChatsShown, setArePastChatsShown] = useState(false);
   const [typingRole, setTypingRole] = useState<SideRole | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [membersByRole, setMembersByRole] = useState<Partial<Record<SideRole, RoomMemberRow>>>({});
@@ -159,7 +168,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
         .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE);
+        .limit(FAST_LOAD_LIMIT);
 
       if (cancelled) return;
       if (error) {
@@ -173,17 +182,16 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       // Merge rather than replace: a realtime message can in principle land
       // in local state moments before this initial fetch resolves.
       setMessages((prev) => prev.reduce(upsert, mapped));
-      setHasMoreHistory(rows.length === PAGE_SIZE);
+      setHasMoreHistory(rows.length === FAST_LOAD_LIMIT);
       setIsLoadingHistory(false);
 
       // Capture "where you left off" before markRead below mutates it —
       // set once per mount and never moved again, so opening the chat
       // after time away lands on what's actually new, not the very
       // bottom. Found within this same fetched page: for someone who's
-      // been away long enough to rack up more unread than PAGE_SIZE,
+      // been away long enough to rack up more unread than FAST_LOAD_LIMIT,
       // this lands on the oldest *loaded* unread message rather than the
-      // true first one — scrolling further up (existing pagination)
-      // still reaches anything earlier than that.
+      // true first one — "Show past chats" still reaches anything earlier.
       const firstUnread = rows.find((r) => r.sender_role === otherRole && !r.read_at && !r.deleted_at);
       setInitialUnreadMessageId(firstUnread?.id ?? null);
 
@@ -366,6 +374,15 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       });
   }, [isLoadingMore, hasMoreHistory, myRole]);
 
+  // Reveals everything older than the fast initial load and switches on
+  // normal infinite-scroll pagination for the rest of this session. Never
+  // persisted — arePastChatsShown starts false again next time the chat
+  // is opened, by design (see FAST_LOAD_LIMIT above).
+  const showPastChats = useCallback(() => {
+    setArePastChatsShown(true);
+    loadMoreHistory();
+  }, [loadMoreHistory]);
+
   const sendMessage = useCallback(
     (text: string) => {
       if (!supabase) return;
@@ -507,7 +524,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       isLoadingHistory,
       isLoadingMore,
       hasMoreHistory,
+      arePastChatsShown,
       loadMoreHistory,
+      showPastChats,
       sendMessage,
       retryMessage,
       deleteMessage,
@@ -531,7 +550,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       isLoadingHistory,
       isLoadingMore,
       hasMoreHistory,
+      arePastChatsShown,
       loadMoreHistory,
+      showPastChats,
       sendMessage,
       retryMessage,
       deleteMessage,

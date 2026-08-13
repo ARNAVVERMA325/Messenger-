@@ -23,7 +23,9 @@ export function MessageList() {
     isLoadingHistory,
     isLoadingMore,
     hasMoreHistory,
+    arePastChatsShown,
     loadMoreHistory,
+    showPastChats,
     unreadCount,
     clearUnread,
   } = useChat();
@@ -106,21 +108,33 @@ export function MessageList() {
     if (isNearBottomRef.current) scrollToBottom(true);
   }, [isTyping, scrollToBottom]);
 
-  const handleLoadMore = useCallback(() => {
+  const captureScrollForPrepend = useCallback(() => {
     const el = scrollRef.current;
     if (el) paginationAdjustRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+  }, []);
+
+  const handleLoadMore = useCallback(() => {
+    captureScrollForPrepend();
     loadMoreHistory();
-  }, [loadMoreHistory]);
+  }, [loadMoreHistory, captureScrollForPrepend]);
+
+  const handleShowPastChats = useCallback(() => {
+    captureScrollForPrepend();
+    showPastChats();
+  }, [showPastChats, captureScrollForPrepend]);
 
   const hasMessages = messages.length > 0;
 
-  // Infinite scroll upward for older history. Re-runs once loading finishes
-  // and the empty/skeleton state gives way to the real scroll container —
-  // otherwise the sentinel ref is still null from the pre-load render and
-  // the observer would never attach for a conversation with a full page.
+  // Infinite scroll upward for older history — only once "Show past chats"
+  // has been used; before that, older history is deliberately not fetched
+  // at all (see FAST_LOAD_LIMIT in ChatContext), so there's nothing to
+  // paginate into yet. Re-runs once loading finishes and the empty/skeleton
+  // state gives way to the real scroll container — otherwise the sentinel
+  // ref is still null from the pre-load render and the observer would
+  // never attach for a conversation with a full page.
   useEffect(() => {
     const sentinel = topSentinelRef.current;
-    if (!sentinel || !hasMoreHistory || isLoadingHistory || !hasMessages) return;
+    if (!sentinel || !hasMoreHistory || isLoadingHistory || !hasMessages || !arePastChatsShown) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -130,7 +144,7 @@ export function MessageList() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMoreHistory, handleLoadMore, isLoadingHistory, hasMessages]);
+  }, [hasMoreHistory, handleLoadMore, isLoadingHistory, hasMessages, arePastChatsShown]);
 
   function handleJumpClick() {
     scrollToBottom(true);
@@ -159,7 +173,15 @@ export function MessageList() {
           onScroll={handleScroll}
           onClick={() => setActiveMessageId(null)}
         >
-          <div ref={topSentinelRef} className={styles.sentinel} />
+          {hasMoreHistory && !arePastChatsShown ? (
+            <div className={styles.showPastChatsRow}>
+              <button type="button" className={styles.showPastChatsButton} onClick={handleShowPastChats}>
+                Show past chats
+              </button>
+            </div>
+          ) : (
+            <div ref={topSentinelRef} className={styles.sentinel} />
+          )}
           {isLoadingMore && <div className={styles.loadingMore}>Loading earlier messages…</div>}
 
           {dayGroups.map((group) => (

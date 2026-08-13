@@ -25,6 +25,28 @@
   color: var(--color-text-tertiary);
 }
 
+.showPastChatsRow {
+  display: flex;
+  justify-content: center;
+  padding: v.$space-2 v.$space-4 v.$space-4;
+}
+
+.showPastChatsButton {
+  @include m.focus-ring;
+  padding: v.$space-2 v.$space-4;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-hover);
+  }
+}
+
 .jumpButton {
   @include m.focus-ring;
   position: absolute;
