@@ -4,6 +4,7 @@ import { useChat } from '@/context/ChatContext';
 import { groupByDay, formatDateSeparator } from '@/utils/formatTime';
 import { MessageBubble } from './MessageBubble';
 import { DateSeparator } from './DateSeparator';
+import { UnreadDivider } from './UnreadDivider';
 import { TypingIndicator } from './TypingIndicator';
 import { EmptyState } from './EmptyState';
 import { MessageListSkeleton } from '@/components/common/Skeleton';
@@ -17,6 +18,7 @@ export function MessageList() {
     other,
     otherRole,
     messages,
+    initialUnreadMessageId,
     typingRole,
     isLoadingHistory,
     isLoadingMore,
@@ -48,16 +50,28 @@ export function MessageList() {
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const nearBottom = distanceFromBottom < BOTTOM_THRESHOLD_PX;
     isNearBottomRef.current = nearBottom;
-    setShowJumpButton(!nearBottom && unreadCount > 0);
+    setShowJumpButton(!nearBottom);
     if (nearBottom && unreadCount > 0) clearUnread();
   }, [unreadCount, clearUnread]);
 
-  // Scroll to bottom once initial history finishes loading.
+  // Land on the first unread message (if there is one) instead of always the
+  // very bottom — important for anyone who doesn't open this daily: opening
+  // it after weeks away should show "here's what's new", not bury it under
+  // an auto-scroll straight past it. Falls back to the bottom otherwise.
   useEffect(() => {
-    if (!isLoadingHistory) {
-      requestAnimationFrame(() => scrollToBottom(false));
-      prevMessageCount.current = messages.length;
-    }
+    if (isLoadingHistory) return;
+
+    requestAnimationFrame(() => {
+      const target = initialUnreadMessageId && document.getElementById(`message-${initialUnreadMessageId}`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'auto', block: 'start' });
+        isNearBottomRef.current = false;
+        setShowJumpButton(true);
+      } else {
+        scrollToBottom(false);
+      }
+    });
+    prevMessageCount.current = messages.length;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoadingHistory]);
 
@@ -152,13 +166,15 @@ export function MessageList() {
             <div key={group.dayKey}>
               <DateSeparator label={formatDateSeparator(group.items[0].createdAt)} />
               {group.items.map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isOwn={message.senderRole === myRole}
-                  isActive={activeMessageId === message.id}
-                  onToggleActive={setActiveMessageId}
-                />
+                <div key={message.id} id={`message-${message.id}`}>
+                  {message.id === initialUnreadMessageId && <UnreadDivider />}
+                  <MessageBubble
+                    message={message}
+                    isOwn={message.senderRole === myRole}
+                    isActive={activeMessageId === message.id}
+                    onToggleActive={setActiveMessageId}
+                  />
+                </div>
               ))}
             </div>
           ))}
@@ -169,7 +185,7 @@ export function MessageList() {
 
       {showJumpButton && (
         <button type="button" className={styles.jumpButton} onClick={handleJumpClick}>
-          New messages
+          {unreadCount > 0 ? 'New messages' : 'Jump to latest'}
           {unreadCount > 0 && <span className={styles.badge}>{unreadCount}</span>}
         </button>
       )}

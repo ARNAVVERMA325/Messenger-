@@ -78,6 +78,7 @@ interface ChatContextValue {
   me: Participant;
   other: Participant;
   messages: Message[];
+  initialUnreadMessageId: string | null;
   typingRole: SideRole | null;
   connectionStatus: ConnectionStatus;
   unreadCount: number;
@@ -114,6 +115,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const [browserOnline, setBrowserOnline] = useState(typeof navigator === 'undefined' || navigator.onLine);
   const [realtimeReady, setRealtimeReady] = useState(false);
   const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
+  const [initialUnreadMessageId, setInitialUnreadMessageId] = useState<string | null>(null);
 
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
@@ -173,6 +175,17 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       setMessages((prev) => prev.reduce(upsert, mapped));
       setHasMoreHistory(rows.length === PAGE_SIZE);
       setIsLoadingHistory(false);
+
+      // Capture "where you left off" before markRead below mutates it —
+      // set once per mount and never moved again, so opening the chat
+      // after time away lands on what's actually new, not the very
+      // bottom. Found within this same fetched page: for someone who's
+      // been away long enough to rack up more unread than PAGE_SIZE,
+      // this lands on the oldest *loaded* unread message rather than the
+      // true first one — scrolling further up (existing pagination)
+      // still reaches anything earlier than that.
+      const firstUnread = rows.find((r) => r.sender_role === otherRole && !r.read_at && !r.deleted_at);
+      setInitialUnreadMessageId(firstUnread?.id ?? null);
 
       const { undeliveredIds, unreadIds } = classifyIncoming(rows, otherRole);
       if (isPageVisible() && unreadIds.length) markRead(unreadIds);
@@ -487,6 +500,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       me,
       other,
       messages,
+      initialUnreadMessageId,
       typingRole,
       connectionStatus,
       unreadCount,
@@ -510,6 +524,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       me,
       other,
       messages,
+      initialUnreadMessageId,
       typingRole,
       connectionStatus,
       unreadCount,

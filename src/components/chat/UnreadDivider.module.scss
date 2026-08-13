@@ -1,0 +1,24 @@
+@use '@/styles/variables' as v;
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: v.$space-3;
+  margin: v.$space-4 v.$space-4 v.$space-2;
+}
+
+.line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-accent);
+  opacity: 0.4;
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
