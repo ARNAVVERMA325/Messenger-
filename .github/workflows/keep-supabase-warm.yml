@@ -1,0 +1,41 @@
+# Supabase's free tier pauses a project after a stretch of no activity.
+# This just touches the project on a schedule so that never happens —
+# nothing here reads or writes app data, it's purely a heartbeat.
+#
+# Runs on GitHub's servers, not any local machine, so it works with no
+# laptop and nothing to remember. To trigger it immediately by hand
+# instead of waiting for the schedule: repo -> Actions tab -> "Keep
+# Supabase warm" -> Run workflow.
+#
+# SUPABASE_URL and SUPABASE_ANON_KEY below are intentionally public
+# values — see src/lib/supabaseClient.ts for why the anon key is safe to
+# expose; they're the same two values already committed to this app's
+# built frontend bundle via Netlify's environment variables.
+
+name: Keep Supabase warm
+
+on:
+  schedule:
+    # Every 3 days. Supabase's inactivity window is about a week, so this
+    # leaves comfortable margin even if a scheduled run is ever delayed.
+    - cron: '17 6 */3 * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://wlzcfzuhesusdjbeskuf.supabase.co
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsemNmenVoZXN1c2RqYmVza3VmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NDkyODMsImV4cCI6MjEwMjEyNTI4M30.SUL-4HkejI6Ajk5zsZamE95GkYpQ4_R31qzy6gh4jEM
+    steps:
+      - name: Touch the Supabase project (PostgREST root — works even before migrations are run)
+        run: |
+          status=$(curl -sS -o /tmp/response.txt -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/" \
+            -H "apikey: $SUPABASE_ANON_KEY")
+          echo "HTTP status: $status"
+          cat /tmp/response.txt
+          # Any response (even 401/404) means the request reached the
+          # project and is real activity — only a network-level failure
+          # (curl exiting non-zero, caught by `set -e` via the shebang
+          # default) should fail this job.
