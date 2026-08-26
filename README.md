@@ -205,10 +205,13 @@ ciphertext.
 
 What that buys, and what it doesn't:
 
-- **Nothing is written to the phone.** The bucket holds ciphertext; the
-  decrypted photo or voice note exists only as an in-memory blob URL that
-  dies with the tab. Nothing lands in the gallery or downloads folder, and
-  the long-press "save image" menu is suppressed.
+- **Nothing is written to the phone unless you ask.** The bucket holds
+  ciphertext; the decrypted photo or voice note exists only as an in-memory
+  blob URL that dies with the tab. Tapping a photo opens it full screen,
+  where a **Save** button writes it to the device — the one deliberate
+  exception. Long-press "save image" stays suppressed everywhere, so
+  saving is always a choice rather than something that happens by
+  brushing the screen.
 - **Screenshots still work.** No web app can prevent them. If that matters,
   it needs to be a conversation between the two of you, not a feature.
 - **Nothing downloads until tapped.** Each attachment shows a placeholder

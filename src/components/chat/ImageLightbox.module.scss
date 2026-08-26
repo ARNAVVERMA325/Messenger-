@@ -1,0 +1,56 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: v.$z-modal;
+  background: rgba(0, 0, 0, 0.92);
+  display: grid;
+  place-items: center;
+  padding: v.$space-4;
+}
+
+.bar {
+  @include m.safe-top;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: v.$space-2;
+  padding: v.$space-3 v.$space-4;
+}
+
+.barButton {
+  @include m.touch-target(40px);
+  @include m.focus-ring;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: v.$space-2;
+  padding: 0 v.$space-3;
+  border-radius: v.$radius-pill;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.image {
+  max-width: 100%;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: v.$radius-sm;
+
+  // Saving happens through the explicit button above, not by long-pressing.
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}

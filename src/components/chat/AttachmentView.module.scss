@@ -2,10 +2,15 @@
 @use '@/styles/mixins' as m;
 
 .imageWrap {
+  @include m.focus-ring;
+  display: block;
   width: min(260px, 62vw);
   border-radius: v.$radius-md;
   overflow: hidden;
   background: var(--color-surface-alt);
+  cursor: zoom-in;
+  padding: 0;
+  border: none;
 }
 
 .image {

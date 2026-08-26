@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import type { Attachment } from '@/types';
 import { useEncryption } from '@/context/EncryptionContext';
 import { loadAttachment } from '@/lib/attachments';
 import { Spinner } from '@/components/common/Spinner';
+import { ImageLightbox } from './ImageLightbox';
 import styles from './AttachmentView.module.scss';
 
 /**
@@ -77,6 +79,8 @@ interface PartProps {
 }
 
 function ImageAttachment({ attachment, state, url, onLoad }: PartProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   // Reserve the real shape up front so loading a photo doesn't shove the
   // conversation around — the dimensions come from the message row, not
   // from the file, so this costs no bandwidth.
@@ -85,12 +89,26 @@ function ImageAttachment({ attachment, state, url, onLoad }: PartProps) {
 
   if (state === 'ready' && url) {
     return (
-      <div className={styles.imageWrap} style={{ aspectRatio: ratio }}>
-        {/* draggable + touch-callout are switched off so a long press doesn't
-            offer "save image". This is friction, not a guarantee: a
-            screenshot always works, and the README says so plainly. */}
-        <img src={url} alt="Photo" className={styles.image} draggable={false} />
-      </div>
+      <>
+        <button
+          type="button"
+          className={styles.imageWrap}
+          style={{ aspectRatio: ratio }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(true);
+          }}
+          aria-label="View photo full screen"
+        >
+          {/* draggable + touch-callout are switched off so a long press
+              doesn't offer "save image" by accident — saving is done
+              deliberately, from the button in the full-screen view. */}
+          <img src={url} alt="Photo" className={styles.image} draggable={false} />
+        </button>
+        <AnimatePresence>
+          {isExpanded && <ImageLightbox url={url} onClose={() => setIsExpanded(false)} />}
+        </AnimatePresence>
+      </>
     );
   }
 
