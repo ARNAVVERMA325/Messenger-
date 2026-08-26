@@ -6,7 +6,7 @@ built like a real messaging product underneath, not a mockup.
 Built in phases, reviewed as it goes. See **Project status** below for what's
 real today and what's still a placeholder.
 
-## Project status — Phase 5 of 7
+## Project status — all 7 phases shipped
 
 **Phase 1 (Product + UI)** shipped a complete, polished mobile-first
 interface. **Phase 2 (Real messaging)** replaced the simulated backend with
@@ -15,7 +15,8 @@ replaced Phase 2's "anyone authenticated can claim a seat" placeholder with
 real, server-verified access codes. **Phase 4 (Privacy layer)** added
 optional client-side message encryption. **Phase 5 (Personal features)**
 adds real names and reply-to-message — deliberately just those two, see
-below.
+below. **Phase 6 (polish)** and **Phase 7 (security audit)** followed, and
+photos and voice notes were added after that (see below).
 
 **What's real right now:**
 - **Access codes are actually verified**, server-side, in the
@@ -51,9 +52,11 @@ below.
   table, HTTPS everywhere (Netlify + Supabase are HTTPS-only by default).
 
 **What's still open, on purpose:**
-- **No per-code password strength story to worry about** — codes are
-  128-bit random values this app generates for you, not something a person
-  chooses, so there's no weak-password problem to solve here.
+- **Self-chosen codes shift some responsibility to you.** Random codes are
+  the default and need no thought. If you set `CODE_A`/`CODE_B` yourself,
+  the script enforces a length floor and rejects the obviously-guessable
+  cases, but it can't judge whether your phrase is genuinely private —
+  pick something only the two of you would know.
 - **Rate limiting is per-IP only**, with no global/cross-IP limiter — a
   documented, accepted tradeoff for a small private app (see the comment on
   `check_rate_limit` in the migration).
@@ -66,21 +69,27 @@ below.
 
 ### About the access code
 
-The product spec for ANYA LABS is:
+Each seat has its own independent secret. There is no shared prefix and no
+role digit: the login function hashes whatever you type and checks it
+against both seats' stored hashes, and **whichever one matches is who you
+are**. Nothing in a code announces which side it belongs to, and knowing
+one side's code reveals nothing about the other's.
 
-```
-ROOM IDENTIFIER + SECRET AUTHENTICATION + ROLE ("1" or "5")
-```
+Entry is deliberately forgiving, because a code often has to be typed from
+memory on a borrowed phone: case, spaces and hyphens are all ignored, so
+`Blue Tshirt`, `blue-tshirt` and `bluetshirt` are the same code. That
+normalization must stay identical in all three places that touch a code —
+`src/utils/accessCode.ts`, the Edge Function, and the setup script — since
+the stored hash is computed over the normalized form.
 
-`generate-access-codes.mjs` produces codes shaped like
-`ANYA-<32 random hex chars>-1` / `...-5`. `ANYA` is a constant, public
-prefix (branding, not secret — there's only one room, so there's nothing
-for it to select between). The random middle segment is the actual secret,
-independently generated per seat — knowing one side's code reveals nothing
-about the other's, even though they share the same visible prefix. The
-final digit only ever selects **which chat profile loads** after the secret
-is verified; see `src/utils/accessCode.ts` and the Edge Function for why
-it's never treated as part of the security check itself.
+By default `generate-access-codes.mjs` picks a random 7-character code
+(~27 billion combinations). You can choose your own phrase instead with
+`CODE_A` / `CODE_B`, which is worth doing when the code must be recalled
+with nothing available to look it up from. The script rejects the cases
+that are actually weak — under 8 characters, or containing `anya`/`arnav`,
+both of which are public knowledge for this project and so add no secrecy.
+It also refuses to set both seats to the same code, which would make them
+genuinely ambiguous.
 
 ## Privacy layer (optional, off by default)
 
@@ -125,8 +134,10 @@ sent through this app before encryption is on, since that would defeat the
 point). Each browser independently derives a 256-bit key from that
 passphrase via PBKDF2 (250,000 iterations) and a salt that's public but
 fixed per deployment (`VITE_ENCRYPTION_SALT` — see `.env.example`). The
-derived key is cached in that browser's `localStorage` so you don't have to
-retype the passphrase every visit. Nothing about the passphrase or the key
+derived key is cached in that browser's storage (via `deviceSessionStorage`,
+so on a borrowed phone it is discarded with the tab rather than left behind)
+so you don't have to retype the passphrase every visit. It is also cleared
+on sign-out. Nothing about the passphrase or the key
 is ever sent anywhere, stored server-side, or recoverable by anyone but the
 two of you. Practical consequence: **if someone has access to your
 unlocked device and its browser storage, they can read your encrypted
@@ -183,6 +194,33 @@ not something a generic messaging app assumes:
   `SHARED_DEVICE_IDLE_MS` (15 minutes) without interaction, checked both on
   a timer and before any restored session is honoured on load. That check
   doesn't depend on tab lifecycle at all. See `src/lib/deviceSession.ts`.
+
+## Photos and voice notes
+
+Attachments are always encrypted — there is no unencrypted path — so
+**sending one requires a passphrase set in Settings**. Until both of you
+have set the same one, the camera and microphone buttons stay hidden
+rather than silently uploading a readable file to a bucket meant to hold
+ciphertext.
+
+What that buys, and what it doesn't:
+
+- **Nothing is written to the phone.** The bucket holds ciphertext; the
+  decrypted photo or voice note exists only as an in-memory blob URL that
+  dies with the tab. Nothing lands in the gallery or downloads folder, and
+  the long-press "save image" menu is suppressed.
+- **Screenshots still work.** No web app can prevent them. If that matters,
+  it needs to be a conversation between the two of you, not a feature.
+- **Nothing downloads until tapped.** Each attachment shows a placeholder
+  sized from metadata stored on the message row, so a photo-heavy history
+  costs nothing to scroll on a slow connection.
+- **Photos are downscaled before upload** (1600px max, JPEG). A side effect
+  worth knowing: the canvas re-encode strips EXIF, including the GPS
+  coordinates phone cameras embed by default.
+- **Voice notes prefer Opus** — roughly 30kB a minute, capped at 5 minutes.
+
+Deleting a message also deletes its file. Storage is capped at 25MB per
+attachment by the database itself, not just the client.
 
 ## Personal features
 

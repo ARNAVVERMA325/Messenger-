@@ -23,4 +23,11 @@ export interface MessageRow {
   delivered_at: string | null;
   read_at: string | null;
   reply_to_id: string | null;
+  attachment_path: string | null;
+  attachment_kind: 'image' | 'audio' | null;
+  attachment_mime: string | null;
+  attachment_size: number | null;
+  attachment_width: number | null;
+  attachment_height: number | null;
+  attachment_duration_ms: number | null;
 }

@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import type { Message } from '@/types';
 import { useChat } from '@/context/ChatContext';
 import { useDecryptedMessage } from '@/hooks/useDecryptedMessage';
+import { AttachmentView } from './AttachmentView';
 import { isEncryptedContent } from '@/lib/crypto';
 import { formatMessageTime } from '@/utils/formatTime';
 import styles from './MessageBubble.module.scss';
@@ -49,7 +50,11 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
   // before then has nothing real to point at yet.
   const hasRealId = !message.id.startsWith('temp:');
   const canInteract = hasRealId && (decrypted.status === 'plain' || decrypted.status === 'decrypted');
-  const canEdit = isOwn && canInteract;
+  const canDelete = isOwn && canInteract;
+  // Editing rewrites the message's text, so a photo or voice note sent
+  // without a caption has nothing to edit. Deleting it is still yours to do,
+  // which is why the two are separate.
+  const canEdit = canDelete && Boolean(message.text);
 
   function handleBubbleTap(e: React.MouseEvent) {
     e.stopPropagation();
@@ -99,7 +104,14 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
         >
           <div className={styles.bubble}>
             {message.replyToId && <ReplyQuote replyToId={message.replyToId} />}
-            <BubbleContent decrypted={decrypted} />
+            {message.attachment && (
+              <div className={styles.attachment}>
+                <AttachmentView attachment={message.attachment} />
+              </div>
+            )}
+            {/* A photo or voice note can travel without a caption, in which
+                case there is no text row to render at all. */}
+            {(message.text || !message.attachment) && <BubbleContent decrypted={decrypted} />}
             {message.editedAt && <span className={styles.edited}> (edited)</span>}
           </div>
         </button>
@@ -141,7 +153,7 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
                 Edit
               </button>
             )}
-            {canEdit && (
+            {canDelete && (
               <button
                 type="button"
                 className={`${styles.actionPill} ${confirmingDelete ? styles.actionPillDanger : ''}`}

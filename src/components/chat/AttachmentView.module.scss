@@ -1,0 +1,88 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.imageWrap {
+  width: min(260px, 62vw);
+  border-radius: v.$radius-md;
+  overflow: hidden;
+  background: var(--color-surface-alt);
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+
+  // Discourages the long-press "save image" sheet. Friction only — a
+  // screenshot still works, and the README is explicit about that.
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.imagePlaceholder {
+  @include m.focus-ring;
+  width: min(260px, 62vw);
+  border-radius: v.$radius-md;
+  background: var(--color-surface-alt);
+  border: 1px dashed var(--color-border-strong);
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background v.$duration-fast v.$ease-out;
+
+  &:not(:disabled):hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.placeholderLabel {
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  font-size: 0.8125rem;
+  padding: v.$space-3;
+  text-align: center;
+}
+
+.audio {
+  display: flex;
+  align-items: center;
+  gap: v.$space-3;
+  min-width: 168px;
+}
+
+.audioButton {
+  @include m.touch-target(36px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  border-radius: v.$radius-pill;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  flex-shrink: 0;
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.audioMeta {
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  color: currentColor;
+}
+
+.audioDuration {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}

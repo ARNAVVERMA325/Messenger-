@@ -103,6 +103,31 @@ export async function encryptText(key: CryptoKey, plaintext: string): Promise<st
 }
 
 /**
+ * Encrypts raw bytes (a photo, a voice note) with a fresh random IV.
+ *
+ * Unlike encryptText's string envelope, the IV is prepended to the
+ * ciphertext as raw bytes — base64 would inflate an already-large file by
+ * a third for no benefit, since nothing needs to read this as text. Layout
+ * is simply [12-byte IV][ciphertext].
+ */
+export async function encryptBytes(key: CryptoKey, data: ArrayBuffer): Promise<Blob> {
+  const iv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: toBufferSource(iv) }, key, data);
+  return new Blob([iv, new Uint8Array(ciphertext)]);
+}
+
+/**
+ * Reverses encryptBytes(). Throws on a wrong key or corrupted data rather
+ * than returning garbage — AES-GCM's authentication tag guarantees that.
+ */
+export async function decryptBytes(key: CryptoKey, payload: ArrayBuffer): Promise<ArrayBuffer> {
+  if (payload.byteLength <= GCM_IV_BYTES) throw new Error('Encrypted payload is too short to contain an IV');
+  const iv = new Uint8Array(payload, 0, GCM_IV_BYTES);
+  const ciphertext = new Uint8Array(payload, GCM_IV_BYTES);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: toBufferSource(iv) }, key, toBufferSource(ciphertext));
+}
+
+/**
  * Decrypts an envelope produced by encryptText(). Throws if `encoded` isn't
  * one (check isEncryptedContent first), or if the key is wrong / content is
  * corrupted — AES-GCM's authentication tag makes that distinction reliable:

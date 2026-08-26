@@ -10,6 +10,7 @@ import {
 } from '@/lib/crypto';
 import { deviceSessionStorage } from '@/lib/deviceSession';
 import { supabase } from '@/lib/supabaseClient';
+import { releaseAttachments } from '@/lib/attachments';
 
 /**
  * PHASE 4 — the optional privacy layer. This context is the ONLY place a
@@ -39,6 +40,12 @@ interface EncryptionContextValue {
   setPassphrase: (passphrase: string) => Promise<void>;
   setEnabled: (enabled: boolean) => void;
   forgetKey: () => void;
+  /**
+   * The raw key, for encrypting attachment bytes (see src/lib/attachments.ts).
+   * A getter rather than a value so callers read it at the moment of use and
+   * can't capture a stale key in a closure after the passphrase changes.
+   */
+  getKey: () => CryptoKey | null;
   encryptOutgoing: (text: string) => Promise<string>;
   decrypt: (content: string) => Promise<DecryptResult>;
 }
@@ -127,10 +134,18 @@ export function EncryptionProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') forgetKey();
+      if (event === 'SIGNED_OUT') {
+        forgetKey();
+        // Decrypted photos and voice notes are held as in-memory blob URLs;
+        // leaving them alive after sign-out would keep readable copies on a
+        // phone whose owner just handed it back.
+        releaseAttachments();
+      }
     });
     return () => subscription.unsubscribe();
   }, [forgetKey]);
+
+  const getKey = useCallback(() => keyRef.current, []);
 
   const encryptOutgoing = useCallback(
     async (text: string) => {
@@ -162,10 +177,11 @@ export function EncryptionProvider({ children }: { children: ReactNode }) {
       setPassphrase,
       setEnabled,
       forgetKey,
+      getKey,
       encryptOutgoing,
       decrypt,
     }),
-    [isSupported, key, isEnabled, isRestoring, setPassphrase, setEnabled, forgetKey, encryptOutgoing, decrypt],
+    [isSupported, key, isEnabled, isRestoring, setPassphrase, setEnabled, forgetKey, getKey, encryptOutgoing, decrypt],
   );
 
   return <EncryptionContext.Provider value={value}>{children}</EncryptionContext.Provider>;

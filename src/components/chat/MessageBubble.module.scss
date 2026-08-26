@@ -185,3 +185,11 @@
   border-color: transparent;
   color: var(--color-danger);
 }
+
+.attachment {
+  margin-bottom: v.$space-2;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}

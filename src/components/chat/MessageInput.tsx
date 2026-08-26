@@ -1,15 +1,28 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useChat } from '@/context/ChatContext';
+import { useEncryption } from '@/context/EncryptionContext';
 import { useDecryptedMessage } from '@/hooks/useDecryptedMessage';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { prepareImage, MAX_ATTACHMENT_BYTES } from '@/lib/attachments';
 import { MAX_MESSAGE_LENGTH } from '@/utils/constants';
+import { Spinner } from '@/components/common/Spinner';
 import styles from './MessageInput.module.scss';
 
 export function MessageInput() {
   const { sendMessage, notifyTyping, editingMessage, editMessage, cancelEdit, replyingTo, cancelReply } = useChat();
+  const { hasKey } = useEncryption();
+  const recorder = useVoiceRecorder();
   const [value, setValue] = useState('');
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEditing = Boolean(editingMessage);
+  // Attachments are always encrypted, so without a passphrase there is no
+  // key to encrypt them with. Rather than silently uploading a readable
+  // file, the controls stay hidden until one is set (Settings -> privacy).
+  const canAttach = hasKey && !isEditing;
 
   useEffect(() => {
     if (editingMessage) {
@@ -50,6 +63,42 @@ export function MessageInput() {
     requestAnimationFrame(resize);
   }
 
+  async function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset immediately so picking the same file twice in a row still fires
+    // a change event.
+    e.target.value = '';
+    if (!file) return;
+
+    setAttachError(null);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError('That photo is too large to send.');
+      return;
+    }
+
+    setIsPreparing(true);
+    try {
+      const draft = await prepareImage(file);
+      sendMessage(value.trim(), replyingTo ?? undefined, draft);
+      if (replyingTo) cancelReply();
+      setValue('');
+      requestAnimationFrame(resize);
+    } catch {
+      setAttachError("That photo couldn't be prepared. Try another one.");
+    } finally {
+      setIsPreparing(false);
+    }
+  }
+
+  async function handleStopRecording() {
+    const draft = await recorder.stop();
+    if (!draft) return;
+    sendMessage(value.trim(), replyingTo ?? undefined, draft);
+    if (replyingTo) cancelReply();
+    setValue('');
+    requestAnimationFrame(resize);
+  }
+
   function handleCancelEdit() {
     cancelEdit();
     setValue('');
@@ -86,10 +135,21 @@ export function MessageInput() {
         }}
       >
         <div className={styles.field}>
+          {canAttach && (
+            <button
+              type="button"
+              className={styles.attachButton}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isPreparing || recorder.isRecording}
+              aria-label="Send a photo"
+            >
+              {isPreparing ? <Spinner size={16} thickness={2} /> : <PhotoIcon />}
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             className={styles.textarea}
-            placeholder="Message"
+            placeholder={recorder.isRecording ? 'Recording…' : 'Message'}
             rows={1}
             value={value}
             onChange={handleChange}
@@ -97,18 +157,111 @@ export function MessageInput() {
             aria-label="Message"
             autoComplete="off"
             maxLength={MAX_MESSAGE_LENGTH}
+            disabled={recorder.isRecording}
           />
         </div>
-        <button
-          type="submit"
-          className={styles.sendButton}
-          disabled={!value.trim()}
-          aria-label={isEditing ? 'Save edit' : 'Send message'}
-        >
-          {isEditing ? <CheckIcon /> : <SendIcon />}
-        </button>
+
+        {/* While recording, the send button becomes "stop and send" — the
+            recording itself is the message. */}
+        {recorder.isRecording ? (
+          <>
+            <button
+              type="button"
+              className={styles.cancelRecordButton}
+              onClick={recorder.cancel}
+              aria-label="Discard recording"
+            >
+              <CloseIcon />
+            </button>
+            <button
+              type="button"
+              className={styles.sendButton}
+              onClick={handleStopRecording}
+              aria-label="Send voice note"
+            >
+              <SendIcon />
+            </button>
+          </>
+        ) : canAttach && !value.trim() ? (
+          <button
+            type="button"
+            className={styles.sendButton}
+            onClick={() => void recorder.start()}
+            disabled={recorder.state === 'requesting'}
+            aria-label="Record a voice note"
+          >
+            {recorder.state === 'requesting' ? <Spinner size={16} thickness={2} /> : <MicIcon />}
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className={styles.sendButton}
+            disabled={!value.trim()}
+            aria-label={isEditing ? 'Save edit' : 'Send message'}
+          >
+            {isEditing ? <CheckIcon /> : <SendIcon />}
+          </button>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className={styles.fileInput}
+          onChange={handlePickImage}
+          tabIndex={-1}
+        />
       </form>
+
+      {recorder.isRecording && (
+        <p className={styles.recordingHint}>
+          <span className={styles.recordingDot} aria-hidden="true" />
+          {formatElapsed(recorder.elapsedMs)} · tap send when you're done
+        </p>
+      )}
+      {recorder.state === 'denied' && (
+        <p className={styles.attachError} role="alert">
+          Microphone access was refused, so voice notes can't be recorded on this device.
+        </p>
+      )}
+      {attachError && (
+        <p className={styles.attachError} role="alert">
+          {attachError}
+        </p>
+      )}
     </div>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+}
+
+function PhotoIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="8.5" cy="10" r="1.5" fill="currentColor" />
+      <path d="M21 16l-5-5-6 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 

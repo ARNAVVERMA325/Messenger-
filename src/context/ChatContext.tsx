@@ -14,6 +14,7 @@ import type { MessageRow, RoomMemberRow } from '@/lib/database.types';
 import { supabase } from '@/lib/supabaseClient';
 import { createId } from '@/utils/id';
 import { useEncryption } from '@/context/EncryptionContext';
+import { uploadAttachment, removeAttachment, type AttachmentDraft } from '@/lib/attachments';
 
 /**
  * PHASE 2 NOTICE — this is the real thing: messages are stored in Postgres
@@ -57,6 +58,18 @@ function mapRow(row: MessageRow, myRole: SideRole): Message {
     deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : undefined,
     readAt: row.read_at ? new Date(row.read_at).getTime() : undefined,
     replyToId: row.reply_to_id ?? undefined,
+    attachment:
+      row.attachment_path && row.attachment_kind && !row.deleted_at
+        ? {
+            path: row.attachment_path,
+            kind: row.attachment_kind,
+            mime: row.attachment_mime ?? 'application/octet-stream',
+            size: row.attachment_size ?? 0,
+            width: row.attachment_width ?? undefined,
+            height: row.attachment_height ?? undefined,
+            durationMs: row.attachment_duration_ms ?? undefined,
+          }
+        : undefined,
   };
 }
 
@@ -96,7 +109,7 @@ interface ChatContextValue {
   loadMoreHistory: () => void;
   showPastChats: () => void;
   setDisplayName: (name: string) => Promise<boolean>;
-  sendMessage: (text: string, replyToId?: string) => void;
+  sendMessage: (text: string, replyToId?: string, draft?: AttachmentDraft) => void;
   retryMessage: (tempId: string) => void;
   deleteMessage: (id: string) => void;
   editMessage: (id: string, text: string) => void;
@@ -115,7 +128,7 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 export function ChatProvider({ session, children }: { session: AuthSession; children: ReactNode }) {
   const { userId, role: myRole } = session;
   const otherRole: SideRole = myRole === 'A' ? 'B' : 'A';
-  const { encryptOutgoing, decrypt } = useEncryption();
+  const { encryptOutgoing, decrypt, getKey } = useEncryption();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -139,7 +152,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const typingClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentAt = useRef(0);
   const hasConnectedOnce = useRef(false);
-  const tempPayloadById = useRef<Map<string, { text: string; replyToId?: string }>>(new Map());
+  const tempPayloadById = useRef<Map<string, { text: string; replyToId?: string; draft?: AttachmentDraft }>>(
+    new Map(),
+  );
 
   const markDelivered = useCallback((ids: string[]) => {
     if (!supabase || ids.length === 0) return;
@@ -413,13 +428,15 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   }, [loadMoreHistory]);
 
   const sendMessage = useCallback(
-    (text: string, replyToId?: string) => {
+    (text: string, replyToId?: string, draft?: AttachmentDraft) => {
       if (!supabase) return;
       const trimmed = text.trim();
-      if (!trimmed) return;
+      // A photo or voice note is a message on its own; text is optional
+      // when one is attached, and required when one isn't.
+      if (!trimmed && !draft) return;
 
       const tempId = `temp:${createId()}`;
-      tempPayloadById.current.set(tempId, { text: trimmed, replyToId });
+      tempPayloadById.current.set(tempId, { text: trimmed, replyToId, draft });
 
       setMessages((prev) => [
         ...prev,
@@ -427,15 +444,47 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       ]);
 
       (async () => {
+        let uploaded: Awaited<ReturnType<typeof uploadAttachment>> | undefined;
+        try {
+          if (draft) {
+            const key = getKey();
+            // Should be unreachable — the composer only offers attachments
+            // once a passphrase is set — but failing loudly beats silently
+            // uploading a readable file to a bucket meant to hold ciphertext.
+            if (!key) throw new Error('No encryption key available for attachment');
+            uploaded = await uploadAttachment(draft, key);
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload attachment', uploadError);
+          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
+          return;
+        }
+
         const contentToStore = await encryptOutgoing(trimmed);
         const { data, error } = await supabase
           .from('messages')
-          .insert({ sender_id: userId, sender_role: myRole, content: contentToStore, reply_to_id: replyToId ?? null })
+          .insert({
+            sender_id: userId,
+            sender_role: myRole,
+            content: contentToStore,
+            reply_to_id: replyToId ?? null,
+            attachment_path: uploaded?.path ?? null,
+            attachment_kind: uploaded?.kind ?? null,
+            attachment_mime: uploaded?.mime ?? null,
+            attachment_size: uploaded?.size ?? null,
+            attachment_width: uploaded?.width ?? null,
+            attachment_height: uploaded?.height ?? null,
+            attachment_duration_ms: uploaded?.durationMs ?? null,
+          })
           .select()
           .single();
 
         if (error || !data) {
           console.error('Failed to send message', error);
+          // The file uploaded but the row didn't land, so nothing will ever
+          // reference it. Clean it up rather than leaving an orphan paid for
+          // out of the project's storage quota.
+          if (uploaded) void removeAttachment(uploaded.path).catch(() => {});
           setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
           return;
         }
@@ -447,7 +496,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
         );
       })();
     },
-    [myRole, userId, encryptOutgoing],
+    [myRole, userId, encryptOutgoing, getKey],
   );
 
   const retryMessage = useCallback(
@@ -456,7 +505,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       if (!payload) return;
       tempPayloadById.current.delete(tempId);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      sendMessage(payload.text, payload.replyToId);
+      sendMessage(payload.text, payload.replyToId, payload.draft);
     },
     [sendMessage],
   );
@@ -513,9 +562,17 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
         setMessages((prev) => prev.filter((m) => m.id !== id));
         return;
       }
+      // Captured before the row comes back soft-deleted, which strips the
+      // attachment metadata from what mapRow returns.
+      const attachmentPath = messagesRef.current.find((m) => m.id === id)?.attachment?.path;
+
       supabase.rpc('delete_message', { p_id: id }).then(({ data, error }) => {
         if (error || !data) return console.error('Failed to delete message', error);
         setMessages((prev) => upsert(prev, mapRow(data as MessageRow, myRole)));
+        // Best-effort, and deliberately after the row is soft-deleted: if
+        // this fails the message still reads as deleted to both people, and
+        // an orphaned file is a quota problem rather than a privacy one.
+        if (attachmentPath) void removeAttachment(attachmentPath).catch(() => {});
       });
     },
     [myRole],

@@ -148,3 +148,86 @@
     transform: scale(0.88);
   }
 }
+
+.attachButton {
+  @include m.touch-target(36px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  border-radius: v.$radius-pill;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  margin-right: v.$space-1;
+  align-self: flex-end;
+  margin-bottom: 2px;
+
+  &:not(:disabled):hover {
+    color: var(--color-accent);
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+  }
+}
+
+// Kept in the DOM (rather than created on demand) so the click that opens
+// the picker comes straight from the user gesture, which mobile browsers
+// require. Visually hidden rather than display:none, which would make it
+// unclickable.
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cancelRecordButton {
+  @include m.touch-target(40px);
+  @include m.focus-ring;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  margin-bottom: 2px;
+
+  &:hover {
+    color: var(--color-danger);
+  }
+}
+
+.recordingHint {
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  padding: v.$space-2 v.$space-3 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.recordingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  animation: recording-pulse 1.4s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.attachError {
+  padding: v.$space-2 v.$space-3 0;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+}
