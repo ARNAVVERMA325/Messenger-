@@ -46,6 +46,19 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Codes are entered from memory, often on a borrowed phone — so entry is
+ * forgiving: case-insensitive, and spaces/hyphens ignored entirely.
+ *
+ * CRITICAL: this must stay byte-for-byte equivalent to
+ * `normalizeAccessCode()` in src/utils/accessCode.ts and `normalizeCode()`
+ * in scripts/generate-access-codes.mjs — the stored hash is computed over
+ * this normalized form, so any drift silently rejects valid codes.
+ */
+function normalizeCode(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, '');
+}
+
 function roleFromCode(code: string): Role | null {
   const last = code.at(-1);
   if (last === '1') return 'A';
@@ -54,7 +67,7 @@ function roleFromCode(code: string): Role | null {
 }
 
 function isValidFormat(code: string): boolean {
-  return code.length >= 6 && /^[A-Za-z0-9-]+$/.test(code);
+  return code.length >= 6 && /^[a-z0-9]+$/.test(code);
 }
 
 async function hmacSha256Hex(message: string, key: string): Promise<string> {
@@ -105,7 +118,9 @@ Deno.serve(async (req) => {
   if (typeof rawCode !== 'string') {
     return json({ error: GENERIC_ERROR }, 400);
   }
-  const code = rawCode.trim();
+  // Everything downstream — format check, role parsing, and the hash
+  // comparison — works on the normalized form only.
+  const code = normalizeCode(rawCode);
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },

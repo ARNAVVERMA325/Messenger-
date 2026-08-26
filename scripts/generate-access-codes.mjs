@@ -9,7 +9,8 @@
 // What it does:
 //   1. Ensures the two fixed auth users (one per seat, "A" and "B") exist.
 //   2. Seeds their room_members rows directly (service role bypasses RLS).
-//   3. Generates two new random access codes, hashes each with
+//   3. Sets each seat's access code — random by default, or one you choose
+//      (see CODE_A / CODE_B below) — hashes it with
 //      HMAC-SHA256(code, CODE_PEPPER), and stores only the hash in
 //      access_secrets. The plaintext codes are printed once, below, and
 //      never stored anywhere by this script or the database.
@@ -18,6 +19,19 @@
 //   SUPABASE_URL=https://xxxx.supabase.co \
 //   SUPABASE_SERVICE_ROLE_KEY=eyJ... \
 //   node scripts/generate-access-codes.mjs
+//
+// CHOOSING YOUR OWN CODES (optional): set CODE_A and/or CODE_B to a phrase
+// instead of letting this script pick a random one. The role digit is
+// appended automatically, so pass just the phrase:
+//
+//   CODE_A="chai biscuit 2am" CODE_B="that blue umbrella" \
+//   node scripts/generate-access-codes.mjs
+//
+// A chosen phrase is worth it when the code has to be recalled from memory
+// on someone else's phone, with nothing saved to look it up from. Entry is
+// forgiving — case, spaces and hyphens are all ignored — so "Chai Biscuit
+// 2am" and "chaibiscuit2am" are the same code. Pick something only the two
+// of you would know; see customCode() below for what gets rejected and why.
 //
 // Optionally pass CODE_PEPPER=<existing value> to rotate the two codes
 // without changing the pepper your Edge Function already has configured.
@@ -57,17 +71,86 @@ const ROLE_DIGIT = { A: '1', B: '5' };
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const SECRET_LENGTH = 6;
 
+// A self-chosen code is memorable precisely because it's personal, which is
+// the whole point when it has to be recalled on a borrowed phone with
+// nothing saved to look it up from. The floor exists because a *short*
+// self-chosen code is the weak case — see the rejection messages below.
+const MIN_CUSTOM_LENGTH = 8;
+
+/**
+ * CRITICAL: must stay byte-for-byte equivalent to `normalizeAccessCode()`
+ * in src/utils/accessCode.ts and `normalizeCode()` in
+ * supabase/functions/verify-access-code/index.ts. The hash stored below is
+ * computed over this normalized form, so drift means valid codes stop
+ * working.
+ */
+function normalizeCode(raw) {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, '');
+}
+
 function emailForRole(role) {
   return `role-${role.toLowerCase()}@anya-labs.invalid`;
 }
 
-function generateCode(role) {
+function randomCode(role) {
   const bytes = randomBytes(SECRET_LENGTH);
   let secretPart = '';
   for (let i = 0; i < SECRET_LENGTH; i++) {
     secretPart += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
   }
-  return `${secretPart}-${ROLE_DIGIT[role]}`;
+  return normalizeCode(`${secretPart}${ROLE_DIGIT[role]}`);
+}
+
+// Turns a chosen phrase into a real code: normalized, with the role digit
+// appended if it isn't already the last character. Exits with an
+// explanation rather than silently accepting something weak.
+function customCode(rawPhrase, role) {
+  const phrase = normalizeCode(rawPhrase);
+
+  if (!/^[a-z0-9]+$/.test(phrase)) {
+    console.error(
+      `CODE_${role} can only contain letters and numbers (spaces and hyphens are fine — they're ignored).`,
+    );
+    process.exit(1);
+  }
+
+  if (phrase.length < MIN_CUSTOM_LENGTH) {
+    console.error(
+      `CODE_${role} is too short — it needs at least ${MIN_CUSTOM_LENGTH} letters/numbers.\n` +
+        'Short codes are the one case where a self-chosen code is genuinely weaker than a random\n' +
+        'one: the login endpoint is rate limited per IP, but that limit is not a defense against\n' +
+        'an attacker rotating IPs, so the code itself has to carry the weight.',
+    );
+    process.exit(1);
+  }
+
+  // "anya" is the app's own branding and "arnav" is the GitHub account that
+  // hosts it — both are the first things anyone looking at this project
+  // would try, so they add no secrecy no matter how long the rest is.
+  for (const guessable of ['anya', 'arnav']) {
+    if (phrase.includes(guessable)) {
+      console.error(
+        `CODE_${role} contains "${guessable}", which is public knowledge for this project\n` +
+          '(the app is called ANYA LABS and lives on github.com/ARNAVERMA1). Pick something only\n' +
+          'the two of you would know — an inside joke, a shared memory, a made-up word.',
+      );
+      process.exit(1);
+    }
+  }
+
+  if (/^[0-9]+$/.test(phrase)) {
+    console.warn(
+      `Note: CODE_${role} is all digits, which is weaker per character than mixing in letters.\n` +
+        'Long enough that it still works, but a word or phrase would be both safer and easier to recall.\n',
+    );
+  }
+
+  return phrase.endsWith(ROLE_DIGIT[role]) ? phrase : `${phrase}${ROLE_DIGIT[role]}`;
+}
+
+function codeForRole(role) {
+  const chosen = process.env[`CODE_${role}`];
+  return chosen ? customCode(chosen, role) : randomCode(role);
 }
 
 function hashCode(code) {
@@ -75,6 +158,10 @@ function hashCode(code) {
 }
 
 async function main() {
+  // Build (and validate) both codes before touching anything, so a rejected
+  // CODE_B can't leave Side A already rotated to a code you'd never see.
+  const codeByRole = Object.fromEntries(ROLES.map((role) => [role, codeForRole(role)]));
+
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -117,7 +204,7 @@ async function main() {
       process.exit(1);
     }
 
-    const code = generateCode(role);
+    const code = codeByRole[role];
     const secretHash = hashCode(code);
 
     const { error: secretError } = await admin
