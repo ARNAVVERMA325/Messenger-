@@ -6,6 +6,7 @@ import { Spinner } from '@/components/common/Spinner';
 import styles from './AccessCodeForm.module.scss';
 
 export function AccessCodeForm() {
+  const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [revealed, setRevealed] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
@@ -21,7 +22,7 @@ export function AccessCodeForm() {
     e.preventDefault();
     if (isSubmitting || !code.trim()) return;
 
-    const ok = await login(code);
+    const ok = await login(code, name);
     if (ok) {
       navigate('/chat', { replace: true });
     } else {
@@ -32,6 +33,21 @@ export function AccessCodeForm() {
 
   return (
     <form className={styles.form} onSubmit={handleSubmit} noValidate>
+      <div className={styles.field}>
+        <input
+          id="chatter-name"
+          className={styles.input}
+          type="text"
+          autoComplete="off"
+          maxLength={40}
+          placeholder="Your name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={isSubmitting}
+          aria-label="Your name"
+        />
+      </div>
+
       <motion.div
         key={shakeKey}
         animate={

@@ -28,7 +28,7 @@ interface AuthContextValue {
   status: AuthStatus;
   errorMessage: string | null;
   isInitializing: boolean;
-  login: (code: string) => Promise<boolean>;
+  login: (code: string, name?: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const login = useCallback(async (code: string) => {
+  const login = useCallback(async (code: string, name?: string) => {
     if (!supabase) return false;
 
     setStatus('verifying');
@@ -127,6 +127,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         type: 'magiclink',
       });
       if (verifyError || !verifyData.session) throw verifyError ?? new Error('token redemption failed');
+
+      // Purely a personalization nicety, not part of authentication — the
+      // code above is what actually proved identity. A blank/unchanged name
+      // just leaves whatever's already set.
+      const trimmedName = name?.trim();
+      if (trimmedName) {
+        supabase.rpc('set_display_name', { p_name: trimmedName }).then(({ error: nameError }) => {
+          if (nameError) console.error('Failed to set display name', nameError);
+        });
+      }
 
       if (!mounted.current) return false;
       setSession({ userId: verifyData.session.user.id, role: data.role, authenticatedAt: Date.now() });

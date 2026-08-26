@@ -48,13 +48,26 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 const ROLES = ['A', 'B'];
 const ROLE_DIGIT = { A: '1', B: '5' };
 
+// Excludes visually ambiguous characters (0/O, 1/I/L) so a code can be
+// hand-typed on a phone without guesswork. 32 symbols ^ 6 positions is
+// ~1.07 billion combinations — short enough to type once (sessions persist,
+// see src/lib/supabaseClient.ts), comfortably ahead of what the
+// login endpoint's rate limiting (8 attempts/15min/IP) can be used to grind
+// through.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const SECRET_LENGTH = 6;
+
 function emailForRole(role) {
   return `role-${role.toLowerCase()}@anya-labs.invalid`;
 }
 
 function generateCode(role) {
-  const secretPart = randomBytes(16).toString('hex'); // 128 bits
-  return `ANYA-${secretPart}-${ROLE_DIGIT[role]}`;
+  const bytes = randomBytes(SECRET_LENGTH);
+  let secretPart = '';
+  for (let i = 0; i < SECRET_LENGTH; i++) {
+    secretPart += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+  }
+  return `${secretPart}-${ROLE_DIGIT[role]}`;
 }
 
 function hashCode(code) {
