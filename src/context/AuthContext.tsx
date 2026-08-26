@@ -3,7 +3,13 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { AuthSession, SideRole } from '@/types';
 import { getFormatError } from '@/utils/accessCode';
 import { supabase } from '@/lib/supabaseClient';
-import { setEphemeralSession } from '@/lib/deviceSession';
+import {
+  setEphemeralSession,
+  isEphemeralSession,
+  isIdleExpired,
+  touchActivity,
+  clearActivity,
+} from '@/lib/deviceSession';
 
 /**
  * PHASE 3 NOTICE — this is the real thing. `login()` sends the access code
@@ -49,6 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const mounted = useRef(true);
+  // Held in a ref so the idle watcher below can call logout without listing
+  // it as a dependency and tearing down its listeners on every render.
+  const logoutRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     mounted.current = true;
@@ -66,6 +75,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     (async () => {
+      // Checked before the session is honoured, so a restored tab on a
+      // borrowed phone never briefly renders the chat before signing out.
+      if (isEphemeralSession() && isIdleExpired()) {
+        await supabase.auth.signOut().catch(() => {});
+        setEphemeralSession(false);
+        clearActivity();
+        if (mounted.current) setIsInitializing(false);
+        return;
+      }
+
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
 
@@ -144,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!mounted.current) return false;
+      touchActivity();
       setSession({ userId: verifyData.session.user.id, role: data.role, authenticatedAt: Date.now() });
       setStatus('idle');
       return true;
@@ -154,6 +174,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, []);
+
+  // Keeps a shared-device session honest while it's open: records real
+  // interaction, and signs out once the idle limit passes. The visibility
+  // check matters most on Android, where the browser is usually backgrounded
+  // rather than closed — coming back to a phone that sat for an hour lands
+  // on the login screen, not the chat.
+  useEffect(() => {
+    if (!session || !isEphemeralSession()) return;
+
+    let lastWrite = 0;
+    const record = () => {
+      // Throttled: interaction fires constantly, and this writes to storage.
+      const now = Date.now();
+      if (now - lastWrite < 30_000) return;
+      lastWrite = now;
+      touchActivity();
+    };
+
+    const check = () => {
+      if (isIdleExpired()) logoutRef.current();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') check();
+      else record();
+    };
+
+    const events: (keyof DocumentEventMap)[] = ['pointerdown', 'keydown'];
+    events.forEach((event) => document.addEventListener(event, record, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    const interval = setInterval(check, 30_000);
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, record));
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearInterval(interval);
+    };
+  }, [session]);
 
   const logout = useCallback(() => {
     // A real sign-out: each seat is a stable, pre-provisioned account now
@@ -166,10 +224,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // again rather than silently inheriting this visit's choice.
     supabase?.auth.signOut().catch(() => {});
     setEphemeralSession(false);
+    clearActivity();
     setSession(null);
     setStatus('idle');
     setErrorMessage(null);
   }, []);
+
+  useEffect(() => {
+    logoutRef.current = logout;
+  }, [logout]);
 
   const value = useMemo(
     () => ({ session, status, errorMessage, isInitializing, login, logout }),

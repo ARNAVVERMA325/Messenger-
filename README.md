@@ -175,7 +175,14 @@ not something a generic messaging app assumes:
   that persists and refreshes itself indefinitely — would leave whoever picks
   that phone up next signed in as you, with the full history readable. The
   cached encryption key follows the same rule, and is cleared on sign-out
-  either way. See `src/lib/deviceSession.ts`.
+  either way.
+
+  Closing isn't relied on by itself, though: Android Chrome restores tabs
+  when the app is reopened, and a restored tab usually gets its
+  `sessionStorage` back too. So a shared-device session also expires after
+  `SHARED_DEVICE_IDLE_MS` (15 minutes) without interaction, checked both on
+  a timer and before any restored session is honoured on load. That check
+  doesn't depend on tab lifecycle at all. See `src/lib/deviceSession.ts`.
 
 ## Personal features
 

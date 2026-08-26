@@ -19,6 +19,19 @@
  */
 
 const EPHEMERAL_FLAG = 'anya.shared-device';
+const LAST_ACTIVE_KEY = 'anya.last-active';
+
+/**
+ * Why a timeout exists on top of sessionStorage: "the browser discards it on
+ * close" is only reliable if closing actually destroys the tab. Android
+ * Chrome restores tabs when the app is reopened, and a restored tab usually
+ * gets its sessionStorage back with it — so a borrowed phone could come back
+ * to a live session hours later. This check doesn't care about tab lifecycle
+ * at all: a shared-device session that hasn't been touched in this long is
+ * signed out on sight, whether the tab was restored, backgrounded, or never
+ * closed in the first place.
+ */
+export const SHARED_DEVICE_IDLE_MS = 15 * 60 * 1000;
 
 function safeStorage(kind: 'local' | 'session'): Storage | null {
   // Private-mode browsers and blocked-cookie settings can make these throw
@@ -52,6 +65,37 @@ export function setEphemeralSession(on: boolean): void {
   }
 }
 
+/** Records that the person is still here. No-op outside shared-device mode. */
+export function touchActivity(): void {
+  if (!isEphemeralSession()) return;
+  try {
+    safeStorage('session')?.setItem(LAST_ACTIVE_KEY, String(Date.now()));
+  } catch {
+    // Ignore.
+  }
+}
+
+/**
+ * True when a shared-device session has gone untouched past the limit.
+ *
+ * A missing timestamp counts as expired, not as fresh: the only ways to get
+ * here without one are a tab restored from a build that predates this, or
+ * storage that was tampered with or partially cleared. Signing out is the
+ * safe reading of an ambiguous state on a phone that isn't yours.
+ */
+export function isIdleExpired(): boolean {
+  if (!isEphemeralSession()) return false;
+  try {
+    const raw = safeStorage('session')?.getItem(LAST_ACTIVE_KEY);
+    if (!raw) return true;
+    const last = Number(raw);
+    if (!Number.isFinite(last)) return true;
+    return Date.now() - last > SHARED_DEVICE_IDLE_MS;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * A Storage-shaped adapter that routes reads and writes to whichever store
  * this session should be using. Removals always clear BOTH, so signing out
@@ -82,3 +126,12 @@ export const deviceSessionStorage = {
     }
   },
 };
+
+/** Clears the activity timestamp. Called on sign-out. */
+export function clearActivity(): void {
+  try {
+    safeStorage('session')?.removeItem(LAST_ACTIVE_KEY);
+  } catch {
+    // Ignore.
+  }
+}

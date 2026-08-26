@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { Spinner } from '@/components/common/Spinner';
+import { SHARED_DEVICE_IDLE_MS } from '@/lib/deviceSession';
 import styles from './AccessCodeForm.module.scss';
 
 export function AccessCodeForm() {
@@ -108,7 +109,9 @@ export function AccessCodeForm() {
         />
         <span>
           This isn't my phone
-          <span className={styles.sharedDeviceNote}>Signs you out when the browser closes.</span>
+          <span className={styles.sharedDeviceNote}>
+            Signs you out when you close the browser, or after {SHARED_DEVICE_IDLE_MS / 60_000} minutes of inactivity.
+          </span>
         </span>
       </label>
 
