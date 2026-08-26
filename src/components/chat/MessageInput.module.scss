@@ -114,6 +114,15 @@
   &::placeholder {
     color: var(--color-text-tertiary);
   }
+
+  // The wrapping .field already signals focus by turning its border accent
+  // on :focus-within, so the global :focus-visible ring (see global.scss)
+  // would draw a second accent ring nested inside the first. Text fields
+  // match :focus-visible on pointer input too, so that doubling showed up
+  // on every tap, not just keyboard navigation.
+  &:focus-visible {
+    outline: none;
+  }
 }
 
 .sendButton {
