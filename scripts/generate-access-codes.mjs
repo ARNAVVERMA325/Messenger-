@@ -21,8 +21,7 @@
 //   node scripts/generate-access-codes.mjs
 //
 // CHOOSING YOUR OWN CODES (optional): set CODE_A and/or CODE_B to a phrase
-// instead of letting this script pick a random one. The role digit is
-// appended automatically, so pass just the phrase:
+// instead of letting this script pick a random one:
 //
 //   CODE_A="chai biscuit 2am" CODE_B="that blue umbrella" \
 //   node scripts/generate-access-codes.mjs
@@ -32,6 +31,10 @@
 // forgiving — case, spaces and hyphens are all ignored — so "Chai Biscuit
 // 2am" and "chaibiscuit2am" are the same code. Pick something only the two
 // of you would know; see customCode() below for what gets rejected and why.
+//
+// The code is the whole identity: each side's code is distinct, and the
+// login function works out which seat you are by seeing which stored hash
+// your code matches. Nothing in the code itself announces its side.
 //
 // Optionally pass CODE_PEPPER=<existing value> to rotate the two codes
 // without changing the pepper your Edge Function already has configured.
@@ -60,16 +63,15 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 }
 
 const ROLES = ['A', 'B'];
-const ROLE_DIGIT = { A: '1', B: '5' };
 
 // Excludes visually ambiguous characters (0/O, 1/I/L) so a code can be
-// hand-typed on a phone without guesswork. 32 symbols ^ 6 positions is
-// ~1.07 billion combinations — short enough to type once (sessions persist,
+// hand-typed on a phone without guesswork. 31 symbols ^ 7 positions is
+// ~27 billion combinations — short enough to type once (sessions persist,
 // see src/lib/supabaseClient.ts), comfortably ahead of what the
 // login endpoint's rate limiting (8 attempts/15min/IP) can be used to grind
 // through.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const SECRET_LENGTH = 6;
+const SECRET_LENGTH = 7;
 
 // A self-chosen code is memorable precisely because it's personal, which is
 // the whole point when it has to be recalled on a borrowed phone with
@@ -92,18 +94,17 @@ function emailForRole(role) {
   return `role-${role.toLowerCase()}@anya-labs.invalid`;
 }
 
-function randomCode(role) {
+function randomCode() {
   const bytes = randomBytes(SECRET_LENGTH);
   let secretPart = '';
   for (let i = 0; i < SECRET_LENGTH; i++) {
     secretPart += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
   }
-  return normalizeCode(`${secretPart}${ROLE_DIGIT[role]}`);
+  return normalizeCode(secretPart);
 }
 
-// Turns a chosen phrase into a real code: normalized, with the role digit
-// appended if it isn't already the last character. Exits with an
-// explanation rather than silently accepting something weak.
+// Turns a chosen phrase into a real code. Exits with an explanation rather
+// than silently accepting something weak.
 function customCode(rawPhrase, role) {
   const phrase = normalizeCode(rawPhrase);
 
@@ -145,12 +146,27 @@ function customCode(rawPhrase, role) {
     );
   }
 
-  return phrase.endsWith(ROLE_DIGIT[role]) ? phrase : `${phrase}${ROLE_DIGIT[role]}`;
+  return phrase;
 }
 
 function codeForRole(role) {
   const chosen = process.env[`CODE_${role}`];
-  return chosen ? customCode(chosen, role) : randomCode(role);
+  return chosen ? customCode(chosen, role) : randomCode();
+}
+
+// A seat is now identified purely by which stored hash a code matches, so
+// two identical codes would make the seats genuinely ambiguous — the login
+// function would hand out whichever it compared last. The old trailing role
+// digit used to make this impossible; nothing does now, so check explicitly.
+function assertCodesDiffer(codeByRole) {
+  const [a, b] = ROLES.map((role) => codeByRole[role]);
+  if (a === b) {
+    console.error(
+      'CODE_A and CODE_B are the same code — each side needs its own.\n' +
+        "(Spaces, dashes and capitals are ignored, so \"Blue Tshirt\" and \"blue-tshirt\" count as identical.)",
+    );
+    process.exit(1);
+  }
 }
 
 function hashCode(code) {
@@ -161,6 +177,7 @@ async function main() {
   // Build (and validate) both codes before touching anything, so a rejected
   // CODE_B can't leave Side A already rotated to a code you'd never see.
   const codeByRole = Object.fromEntries(ROLES.map((role) => [role, codeForRole(role)]));
+  assertCodesDiffer(codeByRole);
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },

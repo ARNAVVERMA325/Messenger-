@@ -1,16 +1,18 @@
 // ANYA LABS — verify-access-code Edge Function
 //
 // This is the ONLY place the access code's secret is actually verified.
-// Everything the frontend does before calling this (format check, role
-// digit parsing) is just UX — this function is what makes that real:
+// Everything the frontend does before calling this (the format check) is
+// just UX — this function is what makes that real:
 //
 //   1. Rate-limits by caller IP (see check_rate_limit in the Phase 3
 //      migration) before doing anything else.
-//   2. Recomputes the role digit and hashes the whole code with a secret
-//      pepper (HMAC-SHA256), never trusting anything the client claims.
-//   3. Compares that hash, in constant time, against the hash stored for
-//      that role (never the plaintext — see scripts/generate-access-codes.mjs).
-//   4. On a match, mints a real Supabase session for that role's fixed,
+//   2. Hashes the code with a secret pepper (HMAC-SHA256), never trusting
+//      anything the client claims about who it belongs to.
+//   3. Compares that hash, in constant time, against every seat's stored
+//      hash (never the plaintext — see scripts/generate-access-codes.mjs).
+//      Which seat matched IS the identity: each side has its own distinct
+//      code, so nothing in the code needs to announce its own role.
+//   4. On a match, mints a real Supabase session for that seat's fixed,
 //      pre-provisioned auth user via a magic-link token (generated
 //      server-side, redeemed client-side with verifyOtp — nothing is
 //      emailed, this endpoint never touches email delivery).
@@ -57,13 +59,6 @@ function json(body: unknown, status = 200): Response {
  */
 function normalizeCode(raw: string): string {
   return raw.trim().toLowerCase().replace(/[\s-]+/g, '');
-}
-
-function roleFromCode(code: string): Role | null {
-  const last = code.at(-1);
-  if (last === '1') return 'A';
-  if (last === '5') return 'B';
-  return null;
 }
 
 function isValidFormat(code: string): boolean {
@@ -146,29 +141,31 @@ Deno.serve(async (req) => {
     return json({ error: GENERIC_ERROR }, 401);
   }
 
-  const role = roleFromCode(code);
-  if (!role) {
-    return json({ error: GENERIC_ERROR }, 401);
-  }
-
-  const { data: secretRow, error: secretError } = await admin
+  const { data: secretRows, error: secretError } = await admin
     .from('access_secrets')
-    .select('secret_hash')
-    .eq('role', role)
-    .maybeSingle();
+    .select('role, secret_hash');
 
   if (secretError) {
-    console.error('failed to load access secret', secretError);
+    console.error('failed to load access secrets', secretError);
     return json({ error: GENERIC_ERROR }, 500);
   }
-  if (!secretRow) {
-    // This role hasn't been provisioned yet (generate-access-codes.mjs
-    // hasn't run) — still a generic error, same as a wrong code.
+  if (!secretRows || secretRows.length === 0) {
+    // Nothing provisioned yet (generate-access-codes.mjs hasn't run) —
+    // still a generic error, same as a wrong code.
     return json({ error: GENERIC_ERROR }, 401);
   }
 
+  // The code itself identifies the seat: each side has its own distinct
+  // secret, so we hash once and see which stored hash it matches. Every
+  // row is compared, with no early exit, so response timing can't reveal
+  // which seat a guess was closest to (or which seats exist at all).
   const computedHash = await hmacSha256Hex(code, CODE_PEPPER);
-  if (!timingSafeEqual(computedHash, secretRow.secret_hash as string)) {
+  let role: Role | null = null;
+  for (const row of secretRows as { role: Role; secret_hash: string }[]) {
+    if (timingSafeEqual(computedHash, row.secret_hash)) role = row.role;
+  }
+
+  if (!role) {
     return json({ error: GENERIC_ERROR }, 401);
   }
 
