@@ -169,6 +169,13 @@ not something a generic messaging app assumes:
   every time, on purpose. Sending and receiving new messages work
   identically either way; this only affects how much old history gets
   fetched up front.
+- **"This isn't my phone."** Ticking this at login keeps the session in
+  `sessionStorage` instead of `localStorage`, so the browser discards it when
+  the tab or browser closes. Without it, the default behaviour — a session
+  that persists and refreshes itself indefinitely — would leave whoever picks
+  that phone up next signed in as you, with the full history readable. The
+  cached encryption key follows the same rule, and is cleared on sign-out
+  either way. See `src/lib/deviceSession.ts`.
 
 ## Personal features
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { deviceSessionStorage } from '@/lib/deviceSession';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -29,6 +30,11 @@ export const supabase = isSupabaseConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        // Routed through deviceSessionStorage so a person signing in on a
+        // borrowed phone gets a session the browser throws away on close,
+        // instead of one that quietly outlives their visit. See
+        // src/lib/deviceSession.ts.
+        storage: deviceSessionStorage,
       },
     })
   : null;

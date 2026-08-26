@@ -3,6 +3,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { AuthSession, SideRole } from '@/types';
 import { getFormatError } from '@/utils/accessCode';
 import { supabase } from '@/lib/supabaseClient';
+import { setEphemeralSession } from '@/lib/deviceSession';
 
 /**
  * PHASE 3 NOTICE — this is the real thing. `login()` sends the access code
@@ -28,7 +29,7 @@ interface AuthContextValue {
   status: AuthStatus;
   errorMessage: string | null;
   isInitializing: boolean;
-  login: (code: string, name?: string) => Promise<boolean>;
+  login: (code: string, name?: string, sharedDevice?: boolean) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -92,8 +93,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const login = useCallback(async (code: string, name?: string) => {
+  const login = useCallback(async (code: string, name?: string, sharedDevice?: boolean) => {
     if (!supabase) return false;
+
+    // Decided before anything writes a session, so the very first write
+    // already lands in the right store (see src/lib/deviceSession.ts).
+    setEphemeralSession(Boolean(sharedDevice));
 
     setStatus('verifying');
     setErrorMessage(null);
@@ -155,7 +160,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (see the PHASE 3 NOTICE above), so ending this session outright is
     // safe — re-entering the correct code always signs back into the same
     // seat, unlike Phase 2's ephemeral anonymous identities.
+    // deviceSessionStorage.removeItem() clears both stores, so signOut()
+    // wipes the session wherever it was kept; resetting the flag afterwards
+    // means the next person to sign in on this tab starts from the default
+    // again rather than silently inheriting this visit's choice.
     supabase?.auth.signOut().catch(() => {});
+    setEphemeralSession(false);
     setSession(null);
     setStatus('idle');
     setErrorMessage(null);

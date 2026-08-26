@@ -8,6 +8,7 @@ import styles from './AccessCodeForm.module.scss';
 export function AccessCodeForm() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [sharedDevice, setSharedDevice] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const { login, status, errorMessage } = useAuth();
@@ -22,7 +23,7 @@ export function AccessCodeForm() {
     e.preventDefault();
     if (isSubmitting || !code.trim()) return;
 
-    const ok = await login(code, name);
+    const ok = await login(code, name, sharedDevice);
     if (ok) {
       navigate('/chat', { replace: true });
     } else {
@@ -96,6 +97,20 @@ export function AccessCodeForm() {
           )}
         </button>
       </motion.div>
+
+      <label className={styles.sharedDevice}>
+        <input
+          type="checkbox"
+          className={styles.sharedDeviceBox}
+          checked={sharedDevice}
+          onChange={(e) => setSharedDevice(e.target.checked)}
+          disabled={isSubmitting}
+        />
+        <span>
+          This isn't my phone
+          <span className={styles.sharedDeviceNote}>Signs you out when the browser closes.</span>
+        </span>
+      </label>
 
       {errorMessage ? (
         <p className={styles.error} id={errorId} role="alert">

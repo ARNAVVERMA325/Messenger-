@@ -118,6 +118,35 @@
   }
 }
 
+.sharedDevice {
+  display: flex;
+  align-items: flex-start;
+  gap: v.$space-3;
+  padding: 0 v.$space-3;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.sharedDeviceBox {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.sharedDeviceNote {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
 .error {
   display: flex;
   align-items: center;
