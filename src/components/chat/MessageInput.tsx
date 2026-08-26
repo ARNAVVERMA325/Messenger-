@@ -19,10 +19,18 @@ export function MessageInput() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEditing = Boolean(editingMessage);
-  // Attachments are always encrypted, so without a passphrase there is no
-  // key to encrypt them with. Rather than silently uploading a readable
-  // file, the controls stay hidden until one is set (Settings -> privacy).
-  const canAttach = hasKey && !isEditing;
+  // The controls are shown whether or not a passphrase exists, and explain
+  // themselves when tapped without one. Hiding them until a key was set
+  // meant the feature was simply invisible, with nothing to indicate it
+  // existed or what unlocked it.
+  const canAttach = !isEditing;
+
+  /** Attachments are always encrypted, so a key is required to send one. */
+  function requireKey(): boolean {
+    if (hasKey) return true;
+    setAttachError('Photos and voice notes are always encrypted. Set a passphrase in Settings first — you both need the same one.');
+    return false;
+  }
 
   useEffect(() => {
     if (editingMessage) {
@@ -139,7 +147,10 @@ export function MessageInput() {
             <button
               type="button"
               className={styles.attachButton}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                setAttachError(null);
+                if (requireKey()) fileInputRef.current?.click();
+              }}
               disabled={isPreparing || recorder.isRecording}
               aria-label="Send a photo"
             >
@@ -186,7 +197,10 @@ export function MessageInput() {
           <button
             type="button"
             className={styles.sendButton}
-            onClick={() => void recorder.start()}
+            onClick={() => {
+              setAttachError(null);
+              if (requireKey()) void recorder.start();
+            }}
             disabled={recorder.state === 'requesting'}
             aria-label="Record a voice note"
           >
