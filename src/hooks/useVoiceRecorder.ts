@@ -22,7 +22,41 @@ const PREFERRED_MIME_TYPES = [
 // can consume if someone pockets the phone mid-record.
 const MAX_DURATION_MS = 5 * 60 * 1000;
 
-export type RecorderState = 'idle' | 'requesting' | 'recording' | 'unsupported' | 'denied';
+export type RecorderState =
+  | 'idle'
+  | 'requesting'
+  | 'recording'
+  | 'unsupported'
+  | 'denied' // the permission prompt was refused, or a previous refusal is remembered
+  | 'no-device' // no microphone attached, or it's disabled at the OS level
+  | 'busy' // a microphone exists but something else is holding it
+  | 'insecure' // getUserMedia needs HTTPS (or localhost)
+  | 'failed';
+
+/**
+ * getUserMedia rejects for several very different reasons, and reporting
+ * them all as "you refused" is actively misleading — a laptop with no
+ * microphone never shows a prompt at all, so "refused" sends people hunting
+ * through browser settings for a permission they were never asked for.
+ */
+export function describeRecorderProblem(state: RecorderState): string | null {
+  switch (state) {
+    case 'denied':
+      return 'Microphone access was blocked. Allow it for this site in your browser settings, then try again.';
+    case 'no-device':
+      return "No microphone was found on this device, so voice notes can't be recorded here.";
+    case 'busy':
+      return 'Something else is using the microphone. Close it and try again.';
+    case 'insecure':
+      return 'Voice notes need a secure (https) connection.';
+    case 'unsupported':
+      return "This browser can't record audio.";
+    case 'failed':
+      return "The microphone couldn't be started. Try again.";
+    default:
+      return null;
+  }
+}
 
 function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
@@ -79,10 +113,16 @@ export function useVoiceRecorder() {
         setElapsedMs(elapsed);
         if (elapsed >= MAX_DURATION_MS) recorderRef.current?.stop();
       }, 200);
-    } catch {
-      // Covers both a refused permission prompt and a device with no
-      // usable microphone — neither is recoverable by retrying here.
-      setState('denied');
+    } catch (error) {
+      // Browsers signal the distinction through DOMException.name; without
+      // this every cause collapses into "refused" and sends people looking
+      // for a prompt they never saw.
+      const name = error instanceof DOMException ? error.name : '';
+      if (!window.isSecureContext) setState('insecure');
+      else if (name === 'NotAllowedError' || name === 'SecurityError') setState('denied');
+      else if (name === 'NotFoundError' || name === 'OverconstrainedError') setState('no-device');
+      else if (name === 'NotReadableError' || name === 'AbortError') setState('busy');
+      else setState('failed');
     }
   }, [state]);
 

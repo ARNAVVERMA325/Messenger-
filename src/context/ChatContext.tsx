@@ -121,6 +121,9 @@ interface ChatContextValue {
   cancelReply: () => void;
   clearUnread: () => void;
   notifyTyping: () => void;
+  /** Why the last send failed, if it did — shown by the composer. */
+  sendError: string | null;
+  clearSendError: () => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -144,6 +147,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [initialUnreadMessageId, setInitialUnreadMessageId] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
@@ -456,6 +460,15 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
           }
         } catch (uploadError) {
           console.error('Failed to upload attachment', uploadError);
+          // "Not delivered" alone isn't actionable — a missing Storage
+          // bucket and a dropped connection need completely different
+          // responses, so say which happened.
+          const reason = uploadError instanceof Error ? uploadError.message : 'Unknown error';
+          setSendError(
+            /bucket/i.test(reason)
+              ? "Attachments aren't set up on the server yet — the storage bucket is missing."
+              : `That attachment couldn't be sent: ${reason}`,
+          );
           setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
           return;
         }
@@ -485,10 +498,12 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
           // reference it. Clean it up rather than leaving an orphan paid for
           // out of the project's storage quota.
           if (uploaded) void removeAttachment(uploaded.path).catch(() => {});
+          setSendError(error?.message ? `Couldn't send: ${error.message}` : "That message couldn't be sent.");
           setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
           return;
         }
         tempPayloadById.current.delete(tempId);
+        setSendError(null);
         // Keep the known plaintext rather than round-tripping our own
         // message through decrypt() — avoids a "decrypting…" flash on send.
         setMessages((prev) =>
@@ -579,6 +594,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   );
 
   const clearUnread = useCallback(() => setUnreadCount(0), []);
+  const clearSendError = useCallback(() => setSendError(null), []);
 
   const notifyTyping = useCallback(() => {
     const now = Date.now();
@@ -639,6 +655,8 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       cancelReply,
       clearUnread,
       notifyTyping,
+      sendError,
+      clearSendError,
     }),
     [
       myRole,
@@ -669,6 +687,8 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       cancelReply,
       clearUnread,
       notifyTyping,
+      sendError,
+      clearSendError,
     ],
   );
 

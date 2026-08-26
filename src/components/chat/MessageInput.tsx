@@ -2,14 +2,24 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useChat } from '@/context/ChatContext';
 import { useEncryption } from '@/context/EncryptionContext';
 import { useDecryptedMessage } from '@/hooks/useDecryptedMessage';
-import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { useVoiceRecorder, describeRecorderProblem } from '@/hooks/useVoiceRecorder';
 import { prepareImage, MAX_ATTACHMENT_BYTES } from '@/lib/attachments';
 import { MAX_MESSAGE_LENGTH } from '@/utils/constants';
 import { Spinner } from '@/components/common/Spinner';
 import styles from './MessageInput.module.scss';
 
 export function MessageInput() {
-  const { sendMessage, notifyTyping, editingMessage, editMessage, cancelEdit, replyingTo, cancelReply } = useChat();
+  const {
+    sendMessage,
+    notifyTyping,
+    editingMessage,
+    editMessage,
+    cancelEdit,
+    replyingTo,
+    cancelReply,
+    sendError,
+    clearSendError,
+  } = useChat();
   const { hasKey } = useEncryption();
   const recorder = useVoiceRecorder();
   const [value, setValue] = useState('');
@@ -233,14 +243,22 @@ export function MessageInput() {
           {formatElapsed(recorder.elapsedMs)} · tap send when you're done
         </p>
       )}
-      {recorder.state === 'denied' && (
+      {describeRecorderProblem(recorder.state) && (
         <p className={styles.attachError} role="alert">
-          Microphone access was refused, so voice notes can't be recorded on this device.
+          {describeRecorderProblem(recorder.state)}
         </p>
       )}
       {attachError && (
         <p className={styles.attachError} role="alert">
           {attachError}
+        </p>
+      )}
+      {sendError && (
+        <p className={styles.attachError} role="alert">
+          {sendError}{' '}
+          <button type="button" className={styles.dismissError} onClick={clearSendError}>
+            Dismiss
+          </button>
         </p>
       )}
     </div>
