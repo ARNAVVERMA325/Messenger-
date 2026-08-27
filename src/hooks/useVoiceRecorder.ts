@@ -45,7 +45,7 @@ export function describeRecorderProblem(state: RecorderState): string | null {
       // A stored block is why no prompt appears — the browser answers on the
       // page's behalf. Nothing the page does can re-trigger the prompt, so
       // the only useful thing to say is where the setting lives.
-      return 'Your browser is blocking the microphone for this site, so it never shows the permission prompt. Tap the padlock (or ⓘ) next to the address bar → Permissions → allow Microphone, then try again.';
+      return 'The microphone was blocked. If no prompt appeared, the browser is remembering an earlier block: tap the padlock (or ⓘ) by the address bar → Permissions → allow Microphone, then reload the page.';
     case 'no-device':
       return "No microphone was found on this device, so voice notes can't be recorded here.";
     case 'busy':
@@ -96,23 +96,11 @@ export function useVoiceRecorder() {
     setState('requesting');
     cancelledRef.current = false;
     try {
-      // Checked first because a stored block makes getUserMedia reject
-      // instantly with the same error a fresh refusal produces — without
-      // this, "denied" can't be distinguished from "you just said no", and
-      // the advice for each is different.
-      let alreadyBlocked = false;
-      try {
-        const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
-        alreadyBlocked = status?.state === 'denied';
-      } catch {
-        // Firefox rejects an unknown permission name; fall through and let
-        // getUserMedia itself be the judge.
-      }
-      if (alreadyBlocked) {
-        setState('denied');
-        return;
-      }
-
+      // getUserMedia is the only authority here, and it is always called.
+      // An earlier version pre-checked navigator.permissions and bailed out
+      // on 'denied' — that read can lag behind a permission the person just
+      // granted, and refusing to even ask made a working microphone look
+      // permanently blocked. Ask, then interpret the failure.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);

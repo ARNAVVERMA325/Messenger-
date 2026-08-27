@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import styles from './ImageLightbox.module.scss';
 
@@ -9,6 +10,12 @@ import styles from './ImageLightbox.module.scss';
  * written to the device. Everywhere else the app avoids that on purpose —
  * long-press "save image" stays suppressed — so saving stays an explicit
  * choice rather than something that happens by brushing the screen.
+ *
+ * Rendered through a portal to document.body. Inline, the overlay sat
+ * inside the message bubble's own <button>, so every click in it also
+ * activated the bubble underneath — which is what made closing it flicker
+ * and reopen. Every handler here also stops propagation, since React
+ * events still travel the component tree even from a portal.
  */
 export function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   const prefersReducedMotion = useReducedMotion();
@@ -32,13 +39,16 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <motion.div
       className={styles.backdrop}
       role="dialog"
       aria-modal="true"
       aria-label="Photo"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
       initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -50,11 +60,21 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
           download={`anya-photo-${Date.now()}.jpg`}
           className={styles.barButton}
           aria-label="Download photo"
+          onClick={(e) => e.stopPropagation()}
         >
           <DownloadIcon />
           <span>Save</span>
         </a>
-        <button ref={closeRef} type="button" className={styles.barButton} onClick={onClose} aria-label="Close photo">
+        <button
+          ref={closeRef}
+          type="button"
+          className={styles.barButton}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          aria-label="Close photo"
+        >
           <CloseIcon />
         </button>
       </div>
@@ -68,7 +88,8 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
         animate={{ scale: 1 }}
         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       />
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
 

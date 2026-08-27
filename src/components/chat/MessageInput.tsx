@@ -27,6 +27,7 @@ export function MessageInput() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const isEditing = Boolean(editingMessage);
   // The controls are shown whether or not a passphrase exists, and explain
@@ -167,6 +168,20 @@ export function MessageInput() {
               {isPreparing ? <Spinner size={16} thickness={2} /> : <PhotoIcon />}
             </button>
           )}
+          {canAttach && (
+            <button
+              type="button"
+              className={styles.attachButton}
+              onClick={() => {
+                setAttachError(null);
+                if (requireKey()) cameraInputRef.current?.click();
+              }}
+              disabled={isPreparing || recorder.isRecording}
+              aria-label="Take a photo"
+            >
+              <CameraIcon />
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             className={styles.textarea}
@@ -235,6 +250,19 @@ export function MessageInput() {
           onChange={handlePickImage}
           tabIndex={-1}
         />
+        {/* `capture` asks the phone to open the camera directly instead of
+            the gallery; "user" picks the front lens, so this is the
+            take-a-selfie-right-now path. Desktop browsers ignore the
+            attribute and just show a file picker, which is harmless. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
+          className={styles.fileInput}
+          onChange={handlePickImage}
+          tabIndex={-1}
+        />
       </form>
 
       {recorder.isRecording && (
@@ -276,6 +304,20 @@ function PhotoIcon() {
       <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.7" />
       <circle cx="8.5" cy="10" r="1.5" fill="currentColor" />
       <path d="M21 16l-5-5-6 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 8h3l1.4-2h7.2L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="13" r="3.2" stroke="currentColor" strokeWidth="1.7" />
     </svg>
   );
 }
