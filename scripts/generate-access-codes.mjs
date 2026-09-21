@@ -132,7 +132,7 @@ function customCode(rawPhrase, role) {
     if (phrase.includes(guessable)) {
       console.error(
         `CODE_${role} contains "${guessable}", which is public knowledge for this project\n` +
-          '(the app is called ANYA LABS and lives on github.com/ARNAVERMA1). Pick something only\n' +
+          '(the app is called ANYA LABS and lives on github.com/ARNAVVERMA325). Pick something only\n' +
           'the two of you would know — an inside joke, a shared memory, a made-up word.',
       );
       process.exit(1);
