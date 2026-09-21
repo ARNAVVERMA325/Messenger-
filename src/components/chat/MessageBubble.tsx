@@ -56,6 +56,16 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
   // which is why the two are separate.
   const canEdit = canDelete && Boolean(message.text);
 
+  function handleBubbleKeyDown(e: React.KeyboardEvent) {
+    // Only when the bubble itself has focus — otherwise Enter on a nested
+    // control (play, view photo) would also toggle the actions menu.
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (canInteract) onToggleActive(isActive ? null : message.id);
+    }
+  }
+
   function handleBubbleTap(e: React.MouseEvent) {
     e.stopPropagation();
     if (!canInteract) return;
@@ -94,11 +104,17 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className={styles.column}>
-        <button
-          type="button"
+        {/* Deliberately a div, not a button. Attachments put real buttons
+            inside the bubble (view photo, play voice note), and a <button>
+            inside a <button> is invalid HTML with undefined event
+            behaviour — it's what made the photo overlay reopen itself.
+            Keyboard access is preserved through the explicit key handler. */}
+        <div
           className={styles.bubbleButton}
           onClick={handleBubbleTap}
-          disabled={!canInteract}
+          onKeyDown={handleBubbleKeyDown}
+          role={canInteract ? 'button' : undefined}
+          tabIndex={canInteract ? 0 : undefined}
           aria-haspopup={canInteract ? 'true' : undefined}
           aria-expanded={canInteract ? isActive : undefined}
         >
@@ -114,7 +130,7 @@ export function MessageBubble({ message, isOwn, isActive, onToggleActive }: Mess
             {(message.text || !message.attachment) && <BubbleContent decrypted={decrypted} />}
             {message.editedAt && <span className={styles.edited}> (edited)</span>}
           </div>
-        </button>
+        </div>
 
         <div className={styles.meta}>
           {isEncrypted && (

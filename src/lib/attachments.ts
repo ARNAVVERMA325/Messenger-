@@ -18,6 +18,7 @@
 
 import { supabase } from '@/lib/supabaseClient';
 import { encryptBytes, decryptBytes } from '@/lib/crypto';
+import { createId } from '@/utils/id';
 
 export const ATTACHMENT_BUCKET = 'attachments';
 
@@ -49,6 +50,55 @@ export interface UploadedAttachment {
   durationMs?: number;
 }
 
+interface DecodedImage {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release: () => void;
+}
+
+/**
+ * Decodes a picked file into something canvas can draw.
+ *
+ * createImageBitmap is the efficient path but doesn't exist on Safari < 15
+ * or older Android WebViews — again, the phones most likely to be borrowed —
+ * so there's an <img> fallback. Both drop EXIF on the canvas re-encode and
+ * both honour EXIF orientation, so a photo taken sideways stays upright
+ * either way.
+ */
+async function decodeImage(file: File): Promise<DecodedImage> {
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(file);
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      // Bitmaps hold decoded pixel data — on a 12MP photo that's ~48MB of
+      // memory, which a low-end phone will not forgive us for leaking.
+      release: () => bitmap.close(),
+    };
+  }
+
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('That file could not be read as an image'));
+      element.src = url;
+    });
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      release: () => URL.revokeObjectURL(url),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
 /**
  * Downscales and re-encodes a picked image.
  *
@@ -58,18 +108,18 @@ export interface UploadedAttachment {
  * deliberate side effect and not an accident to be "fixed" later.
  */
 export async function prepareImage(file: File): Promise<AttachmentDraft> {
-  const bitmap = await createImageBitmap(file);
+  const decoded = await decodeImage(file);
   try {
-    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(decoded.width, decoded.height));
+    const width = Math.max(1, Math.round(decoded.width * scale));
+    const height = Math.max(1, Math.round(decoded.height * scale));
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas is unavailable');
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(decoded.source, 0, 0, width, height);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY),
@@ -78,9 +128,7 @@ export async function prepareImage(file: File): Promise<AttachmentDraft> {
 
     return { blob, kind: 'image', mime: 'image/jpeg', width, height };
   } finally {
-    // Bitmaps hold decoded pixel data — on a 12MP photo that's ~48MB of
-    // memory, which a low-end phone will not forgive us for leaking.
-    bitmap.close();
+    decoded.release();
   }
 }
 
@@ -98,8 +146,11 @@ export async function uploadAttachment(
 
   // A random name, with no extension and nothing derived from the original
   // filename: the bucket listing shouldn't hint at what any file contains,
-  // and the real type is recorded on the message row instead.
-  const path = `${crypto.randomUUID()}`;
+  // and the real type is recorded on the message row instead. createId()
+  // rather than crypto.randomUUID() directly — the latter is missing on
+  // Safari < 15.4 and older Android WebViews, which are exactly the phones
+  // most likely to be borrowed.
+  const path = createId();
 
   const { error } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(path, encrypted, {
     contentType: 'application/octet-stream',

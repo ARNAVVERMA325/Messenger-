@@ -56,7 +56,7 @@
   transition: filter v.$duration-fast v.$ease-out;
 }
 
-.bubbleButton:not(:disabled):active .bubble {
+.bubbleButton:active .bubble {
   filter: brightness(0.94);
 }
 
