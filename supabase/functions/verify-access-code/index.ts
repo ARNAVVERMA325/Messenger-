@@ -1,183 +1,126 @@
-// ANYA LABS — verify-access-code Edge Function
+// ANYA LABS — verify-access-code: signing in with a room name and a code.
 //
-// This is the ONLY place the access code's secret is actually verified.
-// Everything the frontend does before calling this (the format check) is
-// just UX — this function is what makes that real:
+// This is the only place an access code is actually checked:
 //
-//   1. Rate-limits by caller IP (see check_rate_limit in the Phase 3
-//      migration) before doing anything else.
-//   2. Hashes the code with a secret pepper (HMAC-SHA256), never trusting
-//      anything the client claims about who it belongs to.
-//   3. Compares that hash, in constant time, against every seat's stored
-//      hash (never the plaintext — see scripts/generate-access-codes.mjs).
-//      Which seat matched IS the identity: each side has its own distinct
-//      code, so nothing in the code needs to announce its own role.
-//   4. On a match, mints a real Supabase session for that seat's fixed,
-//      pre-provisioned auth user via a magic-link token (generated
-//      server-side, redeemed client-side with verifyOtp — nothing is
-//      emailed, this endpoint never touches email delivery).
+//   1. Rate-limited by caller IP, before any other work.
+//   2. The room is looked up by its handle. An unknown room gets the same
+//      generic error as a wrong code, after the same hashing work, so a
+//      response can't be used to discover which room names exist.
+//   3. Rate-limited again per room. Per-IP limits alone can't stop someone
+//      rotating addresses to guess one couple's code; this caps the total
+//      guesses against any single room, from anywhere. (The cost: someone
+//      hammering a room can lock its owners out for the lockout window.
+//      That's the right trade for a chat app — a short lockout is
+//      recoverable, a guessed code isn't.)
+//   4. The code is hashed and compared, in constant time, against that
+//      room's two seats. Which seat matched IS the identity.
+//   5. A v1 hash (from before rooms existed) is upgraded to v2 on the spot,
+//      since this is the only moment the plaintext is ever available.
+//   6. A single-use session token is minted for that seat's account.
 //
-// Every failure path — bad format, wrong secret, rate-limited, room not
-// set up yet — returns the same generic error text, so a response can
-// never be used to learn whether a given side exists or which part of a
-// guess was wrong.
+// Omitting the room entirely signs in to the legacy room, if one exists —
+// the original couple's app and codes keep working exactly as before, and
+// the pre-rooms client (which never sends a room) keeps working through the
+// rollout.
 //
-// Secrets this function needs (set with `supabase secrets set`, NEVER in
-// frontend code or a VITE_ variable):
-//   SUPABASE_SERVICE_ROLE_KEY  — auto-provided by Supabase in deployed
-//                                 functions; only needed manually for local dev.
-//   CODE_PEPPER                — set by you; must match what
-//                                 scripts/generate-access-codes.mjs used.
+// Secrets: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (provided by Supabase),
+// CODE_PEPPER (set with `supabase secrets set`).
 
-import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from '../_shared/cors.ts';
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const CODE_PEPPER = Deno.env.get('CODE_PEPPER')!;
-
-const GENERIC_ERROR = "That access code didn't work. Please check it and try again.";
-const RATE_LIMIT_ERROR = 'Too many attempts. Please wait a while and try again.';
-
-type Role = 'A' | 'B';
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-/**
- * Codes are entered from memory, often on a borrowed phone — so entry is
- * forgiving: case-insensitive, and spaces/hyphens ignored entirely.
- *
- * CRITICAL: this must stay byte-for-byte equivalent to
- * `normalizeAccessCode()` in src/utils/accessCode.ts and `normalizeCode()`
- * in scripts/generate-access-codes.mjs — the stored hash is computed over
- * this normalized form, so any drift silently rejects valid codes.
- */
-function normalizeCode(raw: string): string {
-  return raw.trim().toLowerCase().replace(/[\s-]+/g, '');
-}
-
-function isValidFormat(code: string): boolean {
-  return code.length >= 6 && /^[a-z0-9]+$/.test(code);
-}
-
-async function hmacSha256Hex(message: string, key: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(key),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message));
-  return Array.from(new Uint8Array(signature))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-// .invalid is reserved by RFC 2606 specifically for addresses that must
-// never resolve or receive mail — a safety net even if email sending were
-// ever accidentally enabled on this project.
-function emailForRole(role: Role): string {
-  return `role-${role.toLowerCase()}@anya-labs.invalid`;
-}
+import { hashV1, hashV2, isPlausibleCode, matchSeat, normalizeCode, normalizeHandle, type SeatSecret } from '../_shared/codes.ts';
+import {
+  adminClient,
+  allowAttempt,
+  clientIp,
+  env,
+  GENERIC_LOGIN_ERROR,
+  json,
+  mintSessionToken,
+  preflight,
+  RATE_LIMIT_ERROR,
+  readJson,
+} from '../_shared/server.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-  if (req.method !== 'POST') {
-    return json({ error: GENERIC_ERROR }, 405);
-  }
+  const early = preflight(req);
+  if (early) return early;
 
-  let rawCode: unknown;
-  try {
-    const body = await req.json();
-    rawCode = body?.code;
-  } catch {
-    return json({ error: GENERIC_ERROR }, 400);
+  const body = await readJson(req);
+  if (!body || typeof body.code !== 'string' || (body.room !== undefined && typeof body.room !== 'string')) {
+    return json({ error: GENERIC_LOGIN_ERROR }, 400);
   }
 
-  if (typeof rawCode !== 'string') {
-    return json({ error: GENERIC_ERROR }, 400);
-  }
-  // Everything downstream — format check, role parsing, and the hash
-  // comparison — works on the normalized form only.
-  const code = normalizeCode(rawCode);
+  const pepper = env('CODE_PEPPER');
+  const admin = adminClient();
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  // Rate limit first, before any parsing/verification work, keyed by the
-  // caller's IP (see the Phase 3 migration for this function's limits and
-  // its documented tradeoffs).
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  const { data: allowed, error: rateLimitError } = await admin.rpc('check_rate_limit', {
-    p_key: `login:${ip}`,
-  });
-
-  if (rateLimitError) {
-    console.error('rate limit check failed', rateLimitError);
-    return json({ error: GENERIC_ERROR }, 500);
-  }
-  if (!allowed) {
+  if (!(await allowAttempt(admin, `login:${clientIp(req)}`, 8, 900, 900))) {
     return json({ error: RATE_LIMIT_ERROR }, 429);
   }
 
-  if (!isValidFormat(code)) {
-    return json({ error: GENERIC_ERROR }, 401);
+  const code = normalizeCode(body.code);
+  const roomInput = typeof body.room === 'string' ? normalizeHandle(body.room) : '';
+
+  const roomQuery = admin.from('rooms').select('id, handle');
+  const { data: room, error: roomError } = await (roomInput
+    ? roomQuery.eq('handle', roomInput)
+    : roomQuery.eq('is_legacy', true)
+  ).maybeSingle();
+
+  if (roomError) {
+    console.error('room lookup failed', roomError);
+    return json({ error: GENERIC_LOGIN_ERROR }, 500);
   }
 
-  const { data: secretRows, error: secretError } = await admin
+  if (!room || !isPlausibleCode(code)) {
+    // Spend the same hashing work a real check would, so "no such room"
+    // and "wrong code" aren't distinguishable by timing either.
+    await Promise.all([hashV1(code, pepper), hashV2(code, '00000000-0000-0000-0000-000000000000', pepper)]);
+    return json({ error: GENERIC_LOGIN_ERROR }, 401);
+  }
+
+  if (!(await allowAttempt(admin, `login-room:${room.id}`, 30, 900, 900))) {
+    return json({ error: RATE_LIMIT_ERROR }, 429);
+  }
+
+  const { data: seats, error: seatsError } = await admin
     .from('access_secrets')
-    .select('role, secret_hash');
+    .select('role, secret_hash, hash_version')
+    .eq('room_id', room.id);
 
-  if (secretError) {
-    console.error('failed to load access secrets', secretError);
-    return json({ error: GENERIC_ERROR }, 500);
-  }
-  if (!secretRows || secretRows.length === 0) {
-    // Nothing provisioned yet (generate-access-codes.mjs hasn't run) —
-    // still a generic error, same as a wrong code.
-    return json({ error: GENERIC_ERROR }, 401);
+  if (seatsError) {
+    console.error('failed to load seat secrets', seatsError);
+    return json({ error: GENERIC_LOGIN_ERROR }, 500);
   }
 
-  // The code itself identifies the seat: each side has its own distinct
-  // secret, so we hash once and see which stored hash it matches. Every
-  // row is compared, with no early exit, so response timing can't reveal
-  // which seat a guess was closest to (or which seats exist at all).
-  const computedHash = await hmacSha256Hex(code, CODE_PEPPER);
-  let role: Role | null = null;
-  for (const row of secretRows as { role: Role; secret_hash: string }[]) {
-    if (timingSafeEqual(computedHash, row.secret_hash)) role = row.role;
+  const match = await matchSeat(code, room.id, (seats ?? []) as SeatSecret[], pepper);
+  if (!match) {
+    return json({ error: GENERIC_LOGIN_ERROR }, 401);
   }
 
-  if (!role) {
-    return json({ error: GENERIC_ERROR }, 401);
+  if (match.wasV1) {
+    // Best-effort: a failed upgrade just means it's retried next login.
+    const { error: upgradeError } = await admin
+      .from('access_secrets')
+      .update({ secret_hash: await hashV2(code, room.id, pepper), hash_version: 2 })
+      .eq('room_id', room.id)
+      .eq('role', match.role)
+      .eq('hash_version', 1);
+    if (upgradeError) console.error('v1 -> v2 hash upgrade failed', upgradeError);
   }
 
-  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-    type: 'magiclink',
-    email: emailForRole(role),
-  });
+  const { data: seat, error: seatError } = await admin
+    .from('room_members')
+    .select('id')
+    .eq('room_id', room.id)
+    .eq('role', match.role)
+    .maybeSingle();
 
-  if (linkError || !linkData?.properties?.hashed_token) {
-    console.error('failed to generate session link', linkError);
-    return json({ error: GENERIC_ERROR }, 500);
+  if (seatError || !seat) {
+    console.error('matched a code but found no seat', seatError);
+    return json({ error: GENERIC_LOGIN_ERROR }, 500);
   }
 
-  return json({ role, tokenHash: linkData.properties.hashed_token });
+  const tokenHash = await mintSessionToken(admin, seat.id);
+  if (!tokenHash) return json({ error: GENERIC_LOGIN_ERROR }, 500);
+
+  return json({ role: match.role, roomId: room.id, handle: room.handle, tokenHash });
 });
