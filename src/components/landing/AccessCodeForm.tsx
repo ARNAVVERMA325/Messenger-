@@ -4,10 +4,18 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { Spinner } from '@/components/common/Spinner';
 import { SHARED_DEVICE_IDLE_MS } from '@/lib/deviceSession';
+import { rememberedRoom } from '@/lib/rooms';
 import styles from './AccessCodeForm.module.scss';
 
-export function AccessCodeForm() {
-  const [name, setName] = useState('');
+/**
+ * Room name + code. The room name comes from, in order: an invite link
+ * (/r/<room>), the last room used on this phone, or typing it. On a
+ * borrowed phone it's never remembered (see rememberRoom), so the person
+ * types it — which is why both fields are built to be forgiving about
+ * capitals and spaces.
+ */
+export function AccessCodeForm({ initialRoom }: { initialRoom?: string }) {
+  const [room, setRoom] = useState(() => initialRoom || rememberedRoom());
   const [code, setCode] = useState('');
   const [sharedDevice, setSharedDevice] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -15,7 +23,7 @@ export function AccessCodeForm() {
   const { login, status, errorMessage } = useAuth();
   const navigate = useNavigate();
   const errorId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
   const prefersReducedMotion = useReducedMotion();
 
   const isSubmitting = status === 'verifying';
@@ -24,44 +32,44 @@ export function AccessCodeForm() {
     e.preventDefault();
     if (isSubmitting || !code.trim()) return;
 
-    const ok = await login(code, name, sharedDevice);
+    const ok = await login(room, code, sharedDevice);
     if (ok) {
       navigate('/chat', { replace: true });
     } else {
       setShakeKey((k) => k + 1);
-      inputRef.current?.focus();
+      codeRef.current?.focus();
     }
   }
 
   return (
     <form className={styles.form} onSubmit={handleSubmit} noValidate>
-      <div className={styles.field}>
+      <div className={`${styles.field} ${errorMessage ? styles.hasError : ''}`}>
         <input
-          id="chatter-name"
+          id="room-name"
           className={styles.input}
           type="text"
+          inputMode="text"
           autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           maxLength={40}
-          placeholder="Your name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          placeholder="Room name"
+          value={room}
+          onChange={(e) => setRoom(e.target.value)}
           disabled={isSubmitting}
-          aria-label="Your name"
+          aria-label="Room name"
         />
       </div>
 
       <motion.div
         key={shakeKey}
-        animate={
-          shakeKey > 0 && !prefersReducedMotion
-            ? { x: [0, -9, 8, -6, 5, -3, 0] }
-            : undefined
-        }
+        animate={shakeKey > 0 && !prefersReducedMotion ? { x: [0, -9, 8, -6, 5, -3, 0] } : undefined}
         transition={{ duration: 0.45, ease: 'easeInOut' }}
         className={`${styles.field} ${errorMessage ? styles.hasError : ''}`}
       >
         <input
-          ref={inputRef}
+          ref={codeRef}
           id="access-code"
           className={styles.input}
           type={revealed ? 'text' : 'password'}
@@ -70,11 +78,11 @@ export function AccessCodeForm() {
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="Enter your access code"
+          placeholder="Your code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           disabled={isSubmitting}
-          aria-label="Access code"
+          aria-label="Your code"
           aria-invalid={Boolean(errorMessage)}
           aria-describedby={errorMessage ? errorId : undefined}
         />
@@ -82,7 +90,7 @@ export function AccessCodeForm() {
           type="button"
           className={styles.reveal}
           onClick={() => setRevealed((v) => !v)}
-          aria-label={revealed ? 'Hide access code' : 'Show access code'}
+          aria-label={revealed ? 'Hide code' : 'Show code'}
           tabIndex={-1}
         >
           {revealed ? <EyeOffIcon /> : <EyeIcon />}
@@ -110,7 +118,8 @@ export function AccessCodeForm() {
         <span>
           This isn't my phone
           <span className={styles.sharedDeviceNote}>
-            Signs you out when you close the browser, or after {SHARED_DEVICE_IDLE_MS / 60_000} minutes of inactivity.
+            Signs you out when you close the browser, or after {SHARED_DEVICE_IDLE_MS / 60_000} minutes of inactivity,
+            and doesn't remember your room.
           </span>
         </span>
       </label>
@@ -120,7 +129,7 @@ export function AccessCodeForm() {
           {errorMessage}
         </p>
       ) : (
-        <p className={styles.hint}>Your code is private and only shared between the two of you.</p>
+        <p className={styles.hint}>Capitals and spaces don't matter in either field.</p>
       )}
     </form>
   );
@@ -157,13 +166,7 @@ function EyeOffIcon() {
 function ArrowIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 12h14M13 6l6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

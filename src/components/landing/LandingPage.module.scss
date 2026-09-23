@@ -88,3 +88,35 @@
   color: var(--color-text-tertiary);
   z-index: 1;
 }
+
+.invitedRoom {
+  color: var(--color-text);
+  font-weight: 600;
+  white-space: nowrap; // a room name broken at its hyphen reads as two words
+}
+
+.notice {
+  width: 100%;
+  margin-bottom: v.$space-4;
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--color-surface-alt);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.createPrompt {
+  margin-top: v.$space-6;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+
+  a {
+    @include m.focus-ring;
+    color: var(--color-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    border-radius: 4px;
+  }
+}

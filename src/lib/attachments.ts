@@ -136,6 +136,7 @@ export async function prepareImage(file: File): Promise<AttachmentDraft> {
 export async function uploadAttachment(
   draft: AttachmentDraft,
   key: CryptoKey,
+  roomId: string,
 ): Promise<UploadedAttachment> {
   if (!supabase) throw new Error('Not connected');
   if (draft.blob.size > MAX_ATTACHMENT_BYTES) {
@@ -144,13 +145,14 @@ export async function uploadAttachment(
 
   const encrypted = await encryptBytes(key, await draft.blob.arrayBuffer());
 
-  // A random name, with no extension and nothing derived from the original
-  // filename: the bucket listing shouldn't hint at what any file contains,
-  // and the real type is recorded on the message row instead. createId()
-  // rather than crypto.randomUUID() directly — the latter is missing on
-  // Safari < 15.4 and older Android WebViews, which are exactly the phones
-  // most likely to be borrowed.
-  const path = createId();
+  // Inside the room's own folder — the storage policies only let a member
+  // read and write under their room's id (see migration 0007). The name is
+  // random, with no extension and nothing derived from the original file:
+  // a listing shouldn't hint at what anything contains, and the real type
+  // lives on the message row. createId() rather than crypto.randomUUID()
+  // directly — the latter is missing on Safari < 15.4 and older Android
+  // WebViews, which are exactly the phones most likely to be borrowed.
+  const path = `${roomId}/${createId()}`;
 
   const { error } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(path, encrypted, {
     contentType: 'application/octet-stream',

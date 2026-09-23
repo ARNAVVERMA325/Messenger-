@@ -1,5 +1,3 @@
-import type { SideRole } from '@/types';
-
 /**
  * This module only checks that a code is *shaped* like a valid access code
  * — length and character set — purely so the UI can give instant feedback
@@ -45,4 +43,28 @@ export function getFormatError(rawCode: string): AccessCodeFormatError | null {
   return null;
 }
 
-export type { SideRole };
+
+/** Mirrors MIN_NEW_CODE_LENGTH in supabase/functions/_shared/codes.ts. */
+export const MIN_NEW_CODE_LENGTH = 8;
+
+/**
+ * Why a code someone is *choosing* would be rejected, or null if it's fine.
+ * Mirrors newCodeProblem() in the functions' shared module, so problems show
+ * up while typing rather than after a round trip — the server still makes
+ * the real decision.
+ *
+ * `publicWords` is what anyone looking at the room already knows: its name
+ * and both people's names. A code containing one adds no secrecy.
+ */
+export function newCodeProblem(rawCode: string, publicWords: string[]): string | null {
+  const code = normalizeAccessCode(rawCode);
+  if (!code) return 'Choose a code.';
+  if (!/^[a-z0-9]+$/.test(code)) return 'Codes can only use letters and numbers (spaces and dashes are fine).';
+  if (code.length < MIN_NEW_CODE_LENGTH) return `At least ${MIN_NEW_CODE_LENGTH} letters or numbers.`;
+  for (const word of publicWords) {
+    const w = normalizeAccessCode(word);
+    if (w.length >= 3 && code.includes(w)) return 'Can’t contain the room name or anyone’s name — those aren’t secret.';
+  }
+  if (/^(.)\1+$/.test(code)) return 'Too easy to guess.';
+  return null;
+}

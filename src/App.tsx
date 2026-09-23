@@ -31,10 +31,27 @@ const ChatPage = lazy(() =>
   })),
 );
 
+// Only ever needed once per couple, so it stays out of the first load too.
+const CreateRoomPage = lazy(() =>
+  lazyWithRetry(() => import('@/components/landing/CreateRoomPage')).then((module) => ({
+    default: module.CreateRoomPage,
+  })),
+);
+
 export function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      {/* Invite links: the same sign-in page, with the room name filled in. */}
+      <Route path="/r/:room" element={<LandingPage />} />
+      <Route
+        path="/create"
+        element={
+          <Suspense fallback={<FullScreenLoader />}>
+            <CreateRoomPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/chat"
         element={

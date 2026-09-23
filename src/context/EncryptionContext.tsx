@@ -37,7 +37,8 @@ interface EncryptionContextValue {
   isSupported: boolean;
   hasKey: boolean;
   isEnabled: boolean;
-  setPassphrase: (passphrase: string) => Promise<void>;
+  /** `roomSalt` is the room's own salt, or null for the legacy room. */
+  setPassphrase: (passphrase: string, roomSalt: string | null) => Promise<void>;
   setEnabled: (enabled: boolean) => void;
   forgetKey: () => void;
   /**
@@ -92,8 +93,8 @@ export function EncryptionProvider({ children }: { children: ReactNode }) {
     })();
   }, [isSupported]);
 
-  const setPassphrase = useCallback(async (passphrase: string) => {
-    const derived = await deriveKeyFromPassphrase(passphrase);
+  const setPassphrase = useCallback(async (passphrase: string, roomSalt: string | null) => {
+    const derived = await deriveKeyFromPassphrase(passphrase, roomSalt);
     const exported = await exportKey(derived);
     try {
       deviceSessionStorage.setItem(STORAGE_KEY_EXPORTED_KEY, exported);

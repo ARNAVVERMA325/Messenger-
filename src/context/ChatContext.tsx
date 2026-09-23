@@ -10,16 +10,17 @@ import {
 } from 'react';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import type { AuthSession, ConnectionStatus, Message, MessageStatus, Participant, SideRole } from '@/types';
-import type { MessageRow, RoomMemberRow } from '@/lib/database.types';
+import type { MessageRow, RoomMemberRow, RoomRow } from '@/lib/database.types';
 import { supabase } from '@/lib/supabaseClient';
 import { createId } from '@/utils/id';
 import { useEncryption } from '@/context/EncryptionContext';
 import { uploadAttachment, removeAttachment, type AttachmentDraft } from '@/lib/attachments';
 
 /**
- * PHASE 2 NOTICE — this is the real thing: messages are stored in Postgres
- * (see supabase/migrations/0001_init.sql), streamed to both clients over a
- * Supabase Realtime channel, and access is enforced by row-level security
+ * Messages are stored in Postgres, streamed to both people over one private
+ * Realtime channel per room ("room:<room id>"), and access is enforced by
+ * row-level security (see supabase/migrations, especially 0007, which
+ * scopes every rule to the caller's own room)
  * and SECURITY DEFINER RPC functions — not by anything this file claims
  * about itself. Connection status combines the browser's real online/
  * offline events with the realtime channel's actual subscribe state.
@@ -73,6 +74,16 @@ function mapRow(row: MessageRow, myRole: SideRole): Message {
   };
 }
 
+/** First letter of a display name for the avatar, falling back to the seat letter. */
+function initialOf(name: string | undefined, role: SideRole): string {
+  const first = name?.trim().charAt(0);
+  return first ? first.toLocaleUpperCase() : role;
+}
+
+function toEpoch(timestamp: string | null | undefined): number | null {
+  return timestamp ? new Date(timestamp).getTime() : null;
+}
+
 function upsert(list: Message[], next: Message): Message[] {
   const merged = [...list.filter((m) => m.id !== next.id), next];
   merged.sort((a, b) => a.createdAt - b.createdAt);
@@ -92,7 +103,21 @@ function classifyIncoming(rows: MessageRow[], otherRole: SideRole) {
   };
 }
 
+export interface RoomInfo {
+  id: string;
+  handle: string;
+  /** Null for the legacy room, which uses the deployment-wide salt. */
+  encryptionSalt: string | null;
+  /**
+   * Whether encryptionSalt is known yet. Deriving a passphrase key before it
+   * is would silently use the wrong salt for a new room — producing a key
+   * that can't read the partner's messages — so Settings waits for this.
+   */
+  isLoaded: boolean;
+}
+
 interface ChatContextValue {
+  room: RoomInfo;
   myRole: SideRole;
   otherRole: SideRole;
   me: Participant;
@@ -129,7 +154,7 @@ interface ChatContextValue {
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ session, children }: { session: AuthSession; children: ReactNode }) {
-  const { userId, role: myRole } = session;
+  const { userId, role: myRole, roomId, roomHandle } = session;
   const otherRole: SideRole = myRole === 'A' ? 'B' : 'A';
   const { encryptOutgoing, decrypt, getKey } = useEncryption();
 
@@ -148,6 +173,9 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [initialUnreadMessageId, setInitialUnreadMessageId] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Starts from what the session already knows; the salt arrives with the
+  // rooms row below (see RoomInfo.isLoaded for why that distinction matters).
+  const [room, setRoom] = useState<RoomInfo>({ id: roomId, handle: roomHandle, encryptionSalt: null, isLoaded: false });
 
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
@@ -231,6 +259,21 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myRole, otherRole]);
 
+  // --- The room itself (name, encryption salt) -------------------------
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('rooms')
+      .select('id, handle, encryption_salt')
+      .eq('id', roomId)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) return console.error('Failed to load room', error);
+        const row = data as Pick<RoomRow, 'id' | 'handle' | 'encryption_salt'>;
+        setRoom({ id: row.id, handle: row.handle, encryptionSalt: row.encryption_salt, isLoaded: true });
+      });
+  }, [roomId]);
+
   // --- Room members (names / last-seen) --------------------------------
   useEffect(() => {
     if (!supabase) return;
@@ -275,14 +318,20 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
   useEffect(() => {
     if (!supabase) return;
 
-    const channel = supabase.channel('room', {
+    // One private channel per room. Its name is what the realtime policies
+    // in migration 0007 authorise against — a member can only ever join
+    // "room:<their own room id>".
+    const channel = supabase.channel(`room:${roomId}`, {
       config: { private: true, broadcast: { self: false }, presence: { key: myRole } },
     });
+    // RLS already limits change events to this room; the filter just stops
+    // the server evaluating (and discarding) every other room's traffic.
+    const roomFilter = `room_id=eq.${roomId}`;
     channelRef.current = channel;
 
     channel.on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'messages' },
+      { event: 'INSERT', schema: 'public', table: 'messages', filter: roomFilter },
       (payload: RealtimePostgresChangesPayload<MessageRow>) => {
         const row = payload.new as MessageRow;
         setMessages((prev) => upsert(prev, mapRow(row, myRole)));
@@ -296,7 +345,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
 
     channel.on(
       'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'messages' },
+      { event: 'UPDATE', schema: 'public', table: 'messages', filter: roomFilter },
       (payload: RealtimePostgresChangesPayload<MessageRow>) => {
         const row = payload.new as MessageRow;
         setMessages((prev) => upsert(prev, mapRow(row, myRole)));
@@ -305,7 +354,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
 
     channel.on(
       'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'room_members' },
+      { event: 'UPDATE', schema: 'public', table: 'room_members', filter: roomFilter },
       (payload: RealtimePostgresChangesPayload<RoomMemberRow>) => {
         const row = payload.new as RoomMemberRow;
         setMembersByRole((prev) => ({ ...prev, [row.role]: row }));
@@ -375,7 +424,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       channelRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myRole, otherRole, markDelivered, markRead, markVisibleAsRead, refetchMember]);
+  }, [roomId, myRole, otherRole, markDelivered, markRead, markVisibleAsRead, refetchMember]);
 
   // --- Browser online/offline (real) ------------------------------------
   useEffect(() => {
@@ -456,7 +505,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
             // once a passphrase is set — but failing loudly beats silently
             // uploading a readable file to a bucket meant to hold ciphertext.
             if (!key) throw new Error('No encryption key available for attachment');
-            uploaded = await uploadAttachment(draft, key);
+            uploaded = await uploadAttachment(draft, key, roomId);
           }
         } catch (uploadError) {
           console.error('Failed to upload attachment', uploadError);
@@ -511,7 +560,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
         );
       })();
     },
-    [myRole, userId, encryptOutgoing, getKey],
+    [myRole, userId, roomId, encryptOutgoing, getKey],
   );
 
   const retryMessage = useCallback(
@@ -607,9 +656,10 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
     () => ({
       role: myRole,
       name: membersByRole[myRole]?.display_name || myRole,
-      initials: myRole,
+      initials: initialOf(membersByRole[myRole]?.display_name, myRole),
       isOnline: true,
       lastSeenAt: Date.now(),
+      codeChangedAt: toEpoch(membersByRole[myRole]?.code_changed_at),
     }),
     [myRole, membersByRole],
   );
@@ -618,15 +668,17 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
     () => ({
       role: otherRole,
       name: membersByRole[otherRole]?.display_name || otherRole,
-      initials: otherRole,
+      initials: initialOf(membersByRole[otherRole]?.display_name, otherRole),
       isOnline: otherOnline,
       lastSeenAt: membersByRole[otherRole] ? new Date(membersByRole[otherRole]!.last_seen_at).getTime() : null,
+      codeChangedAt: toEpoch(membersByRole[otherRole]?.code_changed_at),
     }),
     [otherRole, membersByRole, otherOnline],
   );
 
   const value = useMemo<ChatContextValue>(
     () => ({
+      room,
       myRole,
       otherRole,
       me,
@@ -659,6 +711,7 @@ export function ChatProvider({ session, children }: { session: AuthSession; chil
       clearSendError,
     }),
     [
+      room,
       myRole,
       otherRole,
       me,

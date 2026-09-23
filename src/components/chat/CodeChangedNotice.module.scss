@@ -1,0 +1,35 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: v.$space-3;
+  padding: v.$space-2 v.$space-4;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+
+  strong {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+}
+
+.dismiss {
+  @include m.focus-ring;
+  flex-shrink: 0;
+  padding: v.$space-1 v.$space-3;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}

@@ -1,6 +1,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { ChatProvider, useChat } from '@/context/ChatContext';
 import { ChatHeader } from './ChatHeader';
+import { CodeChangedNotice } from './CodeChangedNotice';
 import { ConnectionBanner } from '@/components/common/ConnectionBanner';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
@@ -12,6 +13,7 @@ function ChatPageInner() {
   return (
     <div className={styles.page}>
       <ChatHeader />
+      <CodeChangedNotice />
       <ConnectionBanner status={connectionStatus} />
       <MessageList />
       <MessageInput />

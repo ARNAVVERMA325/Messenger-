@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { AuthSession, SideRole } from '@/types';
 import { getFormatError } from '@/utils/accessCode';
 import { supabase } from '@/lib/supabaseClient';
+import { functionErrorMessage, normalizeHandle, rememberRoom } from '@/lib/rooms';
 import {
   setEphemeralSession,
   isEphemeralSession,
@@ -12,48 +12,75 @@ import {
 } from '@/lib/deviceSession';
 
 /**
- * PHASE 3 NOTICE — this is the real thing. `login()` sends the access code
- * to the `verify-access-code` Edge Function (supabase/functions/verify-access-code),
- * which is the only place the code's secret is actually checked: it's
- * rate-limited by IP, hashed with a server-side pepper, and compared in
- * constant time against a hash stored server-side (never the plaintext —
- * see scripts/generate-access-codes.mjs). Nothing about *this* file decides
- * whether a code is valid; it only relays the result and, on success,
- * redeems the single-use token the function returns for a real Supabase
- * session belonging to that seat's fixed, pre-provisioned account.
+ * Signing in, creating rooms, and keeping the session honest.
  *
- * Because each seat is now a stable account (not an ephemeral anonymous
- * session claimed on the fly, as in Phase 2), logout can finally be a real
- * sign-out: it ends the session outright, and signing back in with the
- * correct code always re-authenticates the same seat, from any device.
+ * Nothing in this file decides whether a code is valid. `login()` hands the
+ * room name and code to the verify-access-code Edge Function, which is the
+ * only place codes are checked (rate-limited, hashed with a server-side
+ * pepper, compared in constant time). On success it returns a single-use
+ * token, which this file redeems for a real Supabase session belonging to
+ * that seat's account. `createRoom()` works the same way via create-room.
+ *
+ * Every seat is a stable account, so signing out is a real signOut():
+ * entering the right code again always returns to the same seat, from any
+ * device.
  */
 
 type AuthStatus = 'idle' | 'verifying' | 'error';
+
+export interface CreateRoomInput {
+  handle: string;
+  you: { name: string; code: string };
+  partner: { name: string; code: string };
+  sharedDevice: boolean;
+}
+
+export type CreateRoomResult =
+  | { ok: true; handle: string; signedIn: boolean }
+  | { ok: false; error: string };
 
 interface AuthContextValue {
   session: AuthSession | null;
   status: AuthStatus;
   errorMessage: string | null;
   isInitializing: boolean;
-  login: (code: string, name?: string, sharedDevice?: boolean) => Promise<boolean>;
+  /**
+   * True when this app is newer than the database it's talking to — the
+   * multi-room migration or functions haven't been deployed yet. The UI
+   * says so plainly instead of failing in confusing ways.
+   */
+  backendOutdated: boolean;
+  login: (room: string, code: string, sharedDevice?: boolean) => Promise<boolean>;
+  createRoom: (input: CreateRoomInput) => Promise<CreateRoomResult>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const GENERIC_LOGIN_ERROR = "That access code didn't work. Please check it and try again.";
+const GENERIC_LOGIN_ERROR = "That room and code didn't match. Please check both and try again.";
 const RATE_LIMIT_ERROR = 'Too many attempts. Please wait a while and try again.';
 
-interface VerifyAccessCodeResponse {
+interface SeatTokenResponse {
   role: SideRole;
-  tokenHash: string;
+  roomId?: string;
+  handle?: string;
+  tokenHash: string | null;
 }
+
+// PostgREST / Postgres error codes that mean "this column, table or
+// relationship doesn't exist" — i.e. the database predates this app.
+const SCHEMA_MISSING_CODES = new Set(['42703', '42P01', 'PGRST200', 'PGRST204', 'PGRST205']);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [backendOutdated, setBackendOutdated] = useState(false);
+  // Mirrors backendOutdated for code that needs the answer in the same tick
+  // it was discovered — state set during an await isn't visible to the
+  // closure that's still running.
+  const outdatedRef = useRef(false);
   const mounted = useRef(true);
   // Held in a ref so the idle watcher below can call logout without listing
   // it as a dependency and tearing down its listeners on every render.
@@ -66,8 +93,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Resume an existing Supabase session (e.g. after a page refresh) and
-  // look up which seat it belongs to.
+  const markOutdated = useCallback(() => {
+    outdatedRef.current = true;
+    if (mounted.current) setBackendOutdated(true);
+  }, []);
+
+  /** Looks up which room and seat a signed-in account holds. */
+  const loadSeat = useCallback(async (userId: string): Promise<AuthSession | null> => {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('room_members')
+      .select('role, room_id, rooms ( handle )')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error) {
+      if (SCHEMA_MISSING_CODES.has(error.code ?? '')) markOutdated();
+      console.error('Failed to load seat', error);
+      return null;
+    }
+    const row = data as { role: SideRole; room_id: string; rooms: { handle: string } | null } | null;
+    if (!row?.rooms) return null;
+
+    return {
+      userId,
+      role: row.role,
+      roomId: row.room_id,
+      roomHandle: row.rooms.handle,
+      authenticatedAt: Date.now(),
+    };
+  }, [markOutdated]);
+
+  // Resume an existing Supabase session (e.g. after a page refresh).
   useEffect(() => {
     if (!supabase) {
       setIsInitializing(false);
@@ -87,93 +144,151 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
-
       if (user) {
-        const { data: member } = await supabase.from('room_members').select('role').eq('id', user.id).single();
-        const role = (member as { role: SideRole } | null)?.role;
-        if (role && mounted.current) {
-          setSession({ userId: user.id, role, authenticatedAt: Date.now() });
-        }
+        const restored = await loadSeat(user.id);
+        if (restored && mounted.current) setSession(restored);
       }
 
       if (mounted.current) setIsInitializing(false);
     })();
 
-    // Keep local session state in sync if the token is refreshed elsewhere,
-    // or the session disappears (e.g. expires) without logout() being called.
+    // Keep local state in sync if the session disappears (e.g. expires, or
+    // is revoked because the other device changed this seat's code) without
+    // logout() having been called here.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT' && mounted.current) {
-        setSession(null);
-      }
+      if (event === 'SIGNED_OUT' && mounted.current) setSession(null);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [loadSeat]);
 
-  const login = useCallback(async (code: string, name?: string, sharedDevice?: boolean) => {
-    if (!supabase) return false;
+  /** Turns a single-use token from an Edge Function into a real session. */
+  const redeem = useCallback(
+    async (response: SeatTokenResponse): Promise<AuthSession | null> => {
+      if (!supabase || !response.tokenHash) return null;
+      const { data, error } = await supabase.auth.verifyOtp({ token_hash: response.tokenHash, type: 'magiclink' });
+      if (error || !data.session) throw error ?? new Error('token redemption failed');
 
-    // Decided before anything writes a session, so the very first write
-    // already lands in the right store (see src/lib/deviceSession.ts).
-    setEphemeralSession(Boolean(sharedDevice));
+      // The function reports the room directly; older deployments of it
+      // didn't, in which case look it up (and flag the backend as behind).
+      if (response.roomId && response.handle) {
+        return {
+          userId: data.session.user.id,
+          role: response.role,
+          roomId: response.roomId,
+          roomHandle: response.handle,
+          authenticatedAt: Date.now(),
+        };
+      }
+      return loadSeat(data.session.user.id);
+    },
+    [loadSeat],
+  );
 
-    setStatus('verifying');
-    setErrorMessage(null);
+  const login = useCallback(
+    async (room: string, code: string, sharedDevice?: boolean) => {
+      if (!supabase) return false;
 
-    // Client-side format check is UX only — it just avoids a network round
-    // trip for an obviously-empty/malformed entry. The Edge Function does
-    // not trust this and re-validates everything itself.
-    if (getFormatError(code)) {
-      setStatus('error');
-      setErrorMessage(GENERIC_LOGIN_ERROR);
-      return false;
-    }
+      // Decided before anything writes a session, so the very first write
+      // already lands in the right store (see src/lib/deviceSession.ts).
+      setEphemeralSession(Boolean(sharedDevice));
+      setStatus('verifying');
+      setErrorMessage(null);
 
-    try {
-      const { data, error } = await supabase.functions.invoke<VerifyAccessCodeResponse>('verify-access-code', {
-        body: { code: code.trim() },
-      });
-
-      if (error) {
-        const isRateLimited = error instanceof FunctionsHttpError && error.context?.status === 429;
-        if (!mounted.current) return false;
+      // UX only — avoids a round trip for an obviously malformed entry. The
+      // Edge Function re-validates everything itself.
+      if (getFormatError(code)) {
         setStatus('error');
-        setErrorMessage(isRateLimited ? RATE_LIMIT_ERROR : GENERIC_LOGIN_ERROR);
+        setErrorMessage(GENERIC_LOGIN_ERROR);
         return false;
       }
 
-      if (!data?.tokenHash || !data.role) throw new Error('malformed verify-access-code response');
-
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-        token_hash: data.tokenHash,
-        type: 'magiclink',
-      });
-      if (verifyError || !verifyData.session) throw verifyError ?? new Error('token redemption failed');
-
-      // Purely a personalization nicety, not part of authentication — the
-      // code above is what actually proved identity. A blank/unchanged name
-      // just leaves whatever's already set.
-      const trimmedName = name?.trim();
-      if (trimmedName) {
-        supabase.rpc('set_display_name', { p_name: trimmedName }).then(({ error: nameError }) => {
-          if (nameError) console.error('Failed to set display name', nameError);
+      try {
+        const handle = normalizeHandle(room);
+        const { data, error } = await supabase.functions.invoke<SeatTokenResponse>('verify-access-code', {
+          // An empty room is omitted, which the function treats as "the
+          // original room" — how the first couple's codes keep working.
+          body: handle ? { room: handle, code: code.trim() } : { code: code.trim() },
         });
+
+        if (error || !data) {
+          const { status: httpStatus } = await functionErrorMessage(error, GENERIC_LOGIN_ERROR);
+          if (!mounted.current) return false;
+          setStatus('error');
+          setErrorMessage(httpStatus === 429 ? RATE_LIMIT_ERROR : GENERIC_LOGIN_ERROR);
+          return false;
+        }
+
+        const next = await redeem(data);
+        if (!next) {
+          // The code was right and a Supabase session now exists, but it
+          // can't be tied to a room — don't leave that session lying around.
+          await supabase.auth.signOut().catch(() => {});
+          if (!mounted.current) return false;
+          setStatus('error');
+          setErrorMessage(
+            outdatedRef.current
+              ? 'ANYA LABS is being upgraded right now. Please try again in a few minutes.'
+              : GENERIC_LOGIN_ERROR,
+          );
+          return false;
+        }
+        if (!mounted.current) return false;
+
+        touchActivity();
+        rememberRoom(next.roomHandle);
+        setSession(next);
+        setStatus('idle');
+        return true;
+      } catch {
+        if (!mounted.current) return false;
+        setStatus('error');
+        setErrorMessage(GENERIC_LOGIN_ERROR);
+        return false;
+      }
+    },
+    [redeem],
+  );
+
+  const createRoom = useCallback(
+    async (input: CreateRoomInput): Promise<CreateRoomResult> => {
+      if (!supabase) return { ok: false, error: 'Not connected.' };
+      setEphemeralSession(input.sharedDevice);
+
+      const { data, error } = await supabase.functions.invoke<SeatTokenResponse>('create-room', {
+        body: { handle: input.handle, you: input.you, partner: input.partner },
+      });
+
+      if (error || !data) {
+        const { message, status: httpStatus } = await functionErrorMessage(
+          error,
+          "The room couldn't be created. Please try again.",
+        );
+        if (httpStatus === 404) markOutdated();
+        return { ok: false, error: httpStatus === 404 ? 'Creating rooms isn’t available here yet.' : message };
       }
 
-      if (!mounted.current) return false;
-      touchActivity();
-      setSession({ userId: verifyData.session.user.id, role: data.role, authenticatedAt: Date.now() });
-      setStatus('idle');
-      return true;
-    } catch {
-      if (!mounted.current) return false;
-      setStatus('error');
-      setErrorMessage(GENERIC_LOGIN_ERROR);
-      return false;
-    }
-  }, []);
+      const handle = data.handle ?? normalizeHandle(input.handle);
+      rememberRoom(handle);
+
+      // The room exists either way; if the automatic sign-in fails, the
+      // creator can still sign in normally with their code.
+      try {
+        const next = await redeem(data);
+        if (next && mounted.current) {
+          touchActivity();
+          setSession(next);
+          return { ok: true, handle, signedIn: true };
+        }
+      } catch (redeemError) {
+        console.error('Room created, but automatic sign-in failed', redeemError);
+      }
+      return { ok: true, handle, signedIn: false };
+    },
+    [redeem, markOutdated],
+  );
 
   // Keeps a shared-device session honest while it's open: records real
   // interaction, and signs out once the idle limit passes. The visibility
@@ -214,10 +329,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   const logout = useCallback(() => {
-    // A real sign-out: each seat is a stable, pre-provisioned account now
-    // (see the PHASE 3 NOTICE above), so ending this session outright is
-    // safe — re-entering the correct code always signs back into the same
-    // seat, unlike Phase 2's ephemeral anonymous identities.
     // deviceSessionStorage.removeItem() clears both stores, so signOut()
     // wipes the session wherever it was kept; resetting the flag afterwards
     // means the next person to sign in on this tab starts from the default
@@ -235,8 +346,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   const value = useMemo(
-    () => ({ session, status, errorMessage, isInitializing, login, logout }),
-    [session, status, errorMessage, isInitializing, login, logout],
+    () => ({ session, status, errorMessage, isInitializing, backendOutdated, login, createRoom, logout }),
+    [session, status, errorMessage, isInitializing, backendOutdated, login, createRoom, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,9 +1,10 @@
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { motion, useReducedMotion, type Variants } from 'framer-motion';
 import { Logo } from '@/components/common/Logo';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { FullScreenLoader } from '@/components/common/FullScreenLoader';
 import { useAuth } from '@/context/AuthContext';
+import { normalizeHandle } from '@/lib/rooms';
 import { AccessCodeForm } from './AccessCodeForm';
 import styles from './LandingPage.module.scss';
 
@@ -17,12 +18,17 @@ const item: Variants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } },
 };
 
+/** Serves both "/" and "/r/:room" — the latter is an invite link that fills in the room name. */
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
-  const { session, isInitializing } = useAuth();
+  const { session, isInitializing, backendOutdated } = useAuth();
+  const { room } = useParams<{ room?: string }>();
+  const invitedRoom = room ? normalizeHandle(room) : undefined;
 
   if (isInitializing) return <FullScreenLoader />;
   if (session) return <Navigate to="/chat" replace />;
+
+  const itemVariants = prefersReducedMotion ? undefined : item;
 
   return (
     <div className={styles.page}>
@@ -40,21 +46,38 @@ export function LandingPage() {
           initial={prefersReducedMotion ? undefined : 'hidden'}
           animate={prefersReducedMotion ? undefined : 'show'}
         >
-          <motion.div variants={prefersReducedMotion ? undefined : item} className={styles.mark}>
+          <motion.div variants={itemVariants} className={styles.mark}>
             <Logo size={40} showWordmark={false} />
           </motion.div>
 
-          <motion.h1 variants={prefersReducedMotion ? undefined : item} className={styles.title}>
+          <motion.h1 variants={itemVariants} className={styles.title}>
             A private space for two
           </motion.h1>
 
-          <motion.p variants={prefersReducedMotion ? undefined : item} className={styles.tagline}>
-            Enter your access code to step inside.
+          <motion.p variants={itemVariants} className={styles.tagline}>
+            {invitedRoom ? (
+              <>
+                You've been invited to <strong className={styles.invitedRoom}>{invitedRoom}</strong>. Enter your code
+                to step inside.
+              </>
+            ) : (
+              'Enter your room and code to step inside.'
+            )}
           </motion.p>
 
-          <motion.div variants={prefersReducedMotion ? undefined : item} className={styles.formWrap}>
-            <AccessCodeForm />
+          {backendOutdated && (
+            <motion.p variants={itemVariants} className={styles.notice} role="status">
+              ANYA LABS is being upgraded right now. If signing in doesn't work, try again in a few minutes.
+            </motion.p>
+          )}
+
+          <motion.div variants={itemVariants} className={styles.formWrap}>
+            <AccessCodeForm initialRoom={invitedRoom} />
           </motion.div>
+
+          <motion.p variants={itemVariants} className={styles.createPrompt}>
+            New here? <Link to="/create">Create a room for two</Link>
+          </motion.p>
         </motion.div>
       </main>
 

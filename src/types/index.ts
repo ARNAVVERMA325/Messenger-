@@ -1,6 +1,6 @@
-// Which side of the private room a person is on. The access-code's final
-// digit ("1" -> A, "5" -> B) only ever picks *which UI/profile* loads —
-// see src/utils/accessCode.ts for why that digit is not the security check.
+// Which of a room's two seats a person holds. Purely positional — the
+// server decides it from which seat's code matched, and it carries no
+// meaning beyond "me" versus "the other person".
 export type SideRole = 'A' | 'B';
 
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -45,10 +45,15 @@ export interface Participant {
   initials: string;
   isOnline: boolean;
   lastSeenAt: number | null;
+  /** When this person last changed their access code (never the code itself). */
+  codeChangedAt: number | null;
 }
 
 export interface AuthSession {
   userId: string;
   role: SideRole;
+  roomId: string;
+  /** The room's name as typed at login and used in invite links (/r/<handle>). */
+  roomHandle: string;
   authenticatedAt: number;
 }

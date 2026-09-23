@@ -29,7 +29,16 @@ const GCM_IV_BYTES = 12;
 // guess expensive; the salt just stops guesses being reused across sites.
 const DEFAULT_SALT = 'anya-labs-default-salt-set-VITE_ENCRYPTION_SALT-per-deployment';
 
-function getSalt(): Uint8Array {
+/**
+ * Each room created since multi-tenancy has its own random salt, stored on
+ * its rooms row; the original (legacy) room has none and keeps using the
+ * deployment-wide value. That fallback is not optional — the same
+ * passphrase with a different salt derives a different key, so changing
+ * the legacy room's salt would make every message it ever encrypted
+ * unreadable.
+ */
+function getSalt(roomSalt?: string | null): Uint8Array {
+  if (roomSalt) return new TextEncoder().encode(roomSalt);
   const configured = import.meta.env.VITE_ENCRYPTION_SALT;
   const value = configured && configured.length > 0 ? configured : DEFAULT_SALT;
   return new TextEncoder().encode(value);
@@ -63,11 +72,11 @@ export function isWebCryptoSupported(): boolean {
 }
 
 /** Derives a fresh, extractable AES-GCM key from a passphrase. Never stores or transmits the passphrase itself. */
-export async function deriveKeyFromPassphrase(passphrase: string): Promise<CryptoKey> {
+export async function deriveKeyFromPassphrase(passphrase: string, roomSalt?: string | null): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const baseKey = await crypto.subtle.importKey('raw', encoder.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: toBufferSource(getSalt()), iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: toBufferSource(getSalt(roomSalt)), iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
     baseKey,
     { name: 'AES-GCM', length: AES_KEY_LENGTH },
     true, // extractable, so it can be cached locally (see EncryptionContext)

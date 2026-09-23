@@ -121,6 +121,9 @@
 .sharedDevice {
   display: flex;
   align-items: flex-start;
+  // The landing hero centres its text; a checkbox label has to read from the
+  // box, or the label floats away from the thing it describes.
+  text-align: left;
   gap: v.$space-3;
   padding: 0 v.$space-3;
   cursor: pointer;

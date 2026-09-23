@@ -1,0 +1,370 @@
+@use '@/styles/variables' as v;
+@use '@/styles/mixins' as m;
+
+// Same page chrome as the landing page (glow, top bar), so moving between
+// them feels like one place rather than two.
+.page {
+  position: relative;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  overflow-x: hidden;
+}
+
+.glow {
+  position: absolute;
+  inset: -20% -20% auto -20%;
+  height: 60vh;
+  background: radial-gradient(closest-side, rgba(226, 165, 109, 0.18), transparent 70%);
+  pointer-events: none;
+  filter: blur(10px);
+
+  :global([data-theme='light']) & {
+    background: radial-gradient(closest-side, rgba(201, 111, 92, 0.14), transparent 70%);
+  }
+}
+
+.topBar {
+  @include m.safe-top;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: v.$space-4 v.$space-4 0;
+
+  @include m.from(v.$bp-md) {
+    padding: v.$space-5 v.$space-6 0;
+  }
+}
+
+.back {
+  @include m.focus-ring;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  text-decoration: none;
+  padding: v.$space-2 0;
+  border-radius: 4px;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: v.$space-5 v.$space-4 v.$space-7;
+}
+
+.card {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: v.$space-5;
+}
+
+.title {
+  font-size: clamp(1.75rem, 6vw, 2.4rem);
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.lede {
+  margin-top: calc(-1 * #{v.$space-3});
+  max-width: 58ch;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+// ---- Fields ----------------------------------------------------------------
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: v.$space-2;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.input {
+  width: 100%;
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 16px; // prevents iOS zoom-on-focus
+  transition:
+    border-color v.$duration-fast v.$ease-out,
+    box-shadow v.$duration-fast v.$ease-out;
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 4px rgba(226, 165, 109, 0.14);
+  }
+}
+
+.inputSecret {
+  letter-spacing: 0.04em;
+}
+
+.inputError {
+  border-color: var(--color-danger);
+}
+
+.fieldNote,
+.fieldError {
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.fieldNote {
+  color: var(--color-text-tertiary);
+}
+
+.fieldError {
+  color: var(--color-danger);
+}
+
+.linkPreview {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+// ---- The two seats, joined -------------------------------------------------
+.pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: v.$space-3;
+
+  @include m.from(v.$bp-md) {
+    grid-template-columns: 1fr auto 1fr;
+    gap: v.$space-4;
+    align-items: stretch;
+  }
+}
+
+.seat {
+  display: flex;
+  flex-direction: column;
+  gap: v.$space-4;
+  min-width: 0;
+  padding: v.$space-5;
+  border: 1px solid var(--color-border);
+  border-radius: v.$radius-lg;
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-soft);
+}
+
+.seatLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+// The joining line from the sketch: vertical between side-by-side seats on
+// wider screens, horizontal between stacked ones on a phone.
+.connector {
+  display: flex;
+  align-items: center;
+  gap: v.$space-2;
+  color: var(--color-text-tertiary);
+
+  @include m.from(v.$bp-md) {
+    flex-direction: column;
+    justify-content: center;
+  }
+}
+
+.connectorLine {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-border-strong), transparent);
+
+  @include m.from(v.$bp-md) {
+    width: 1px;
+    height: auto;
+    background: linear-gradient(to bottom, transparent, var(--color-border-strong), transparent);
+  }
+}
+
+.connectorGlyph {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: v.$radius-pill;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-alt);
+}
+
+// ---- Bottom of the form ----------------------------------------------------
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: v.$space-3;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+
+  input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+  }
+}
+
+.warning {
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--color-surface-alt);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+
+  strong {
+    color: var(--color-text);
+  }
+}
+
+.serverError {
+  padding: v.$space-3 v.$space-4;
+  border-radius: v.$radius-md;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+}
+
+.submit {
+  @include m.touch-target(v.$input-min-height);
+  @include m.focus-ring;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: v.$space-4;
+  border-radius: v.$radius-pill;
+  background: var(--accent-gradient);
+  color: var(--color-on-accent);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition:
+    transform v.$duration-fast v.$ease-out,
+    box-shadow v.$duration-fast v.$ease-out;
+
+  &:not(:disabled):hover {
+    box-shadow: 0 6px 20px -6px rgba(201, 111, 92, 0.55);
+  }
+
+  &:not(:disabled):active {
+    transform: scale(0.98);
+  }
+
+  &:disabled {
+    opacity: 0.7;
+  }
+
+  @include m.from(v.$bp-md) {
+    align-self: flex-end;
+    width: auto;
+    min-width: 220px;
+  }
+}
+
+// ---- Handover (after creation) --------------------------------------------
+.handover {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: v.$radius-lg;
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.handoverRow {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  align-items: center;
+  gap: v.$space-3;
+  padding: v.$space-4 v.$space-5;
+
+  & + & {
+    border-top: 1px solid var(--color-border);
+  }
+
+  dt {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  dd {
+    display: flex;
+    align-items: center;
+    gap: v.$space-3;
+    min-width: 0;
+    margin: 0;
+  }
+}
+
+.handoverValue {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  // Only as a last resort (a very long room name) — the <wbr> after "/r/"
+  // gives links a natural place to wrap first.
+  overflow-wrap: break-word;
+}
+
+.code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 1.0625rem;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+.copy {
+  @include m.focus-ring;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: v.$space-1 v.$space-3;
+  border-radius: v.$radius-pill;
+  background: var(--color-surface-alt);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.note {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
